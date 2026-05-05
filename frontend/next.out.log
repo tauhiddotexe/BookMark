@@ -1,0 +1,17 @@
+
+> bookmark-frontend@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.14
+   - Local:        http://localhost:3000
+   - Network:      http://10.122.175.34:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 4.4s
+ ○ Compiling / ...
+ ✓ Compiled / in 7.2s (601 modules)
+ GET / 200 in 8133ms
+ GET / 200 in 356ms
+ GET / 200 in 216ms
+[?25h
