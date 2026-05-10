@@ -16,6 +16,8 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
+RUN python manage.py collectstatic --noinput
+
 # Run migrations and start gunicorn
 # In a real strict production environment, migrations might be run separately,
 # but for a self-contained compose setup, this is practical.

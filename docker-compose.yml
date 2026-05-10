@@ -11,6 +11,12 @@ services:
       - mongodb_data:/data/db
     networks:
       - bookmark_net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   redis:
     image: redis:7.0-alpine
@@ -22,6 +28,11 @@ services:
       - redis_data:/data
     networks:
       - bookmark_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -34,16 +45,22 @@ services:
     environment:
       - MONGODB_URL=mongodb://mongodb:27017/bookmark
       - REDIS_URL=redis://redis:6379/1
-    ports:
-      - "8000:8000"
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ./backend/media:/app/media
-      - ./backend/staticfiles:/app/staticfiles
+      - backend_media:/app/media
+      - backend_static:/app/staticfiles
     networks:
       - bookmark_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/stats/')\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   frontend:
     build:
@@ -54,13 +71,19 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    volumes:
+      - backend_media:/usr/share/nginx/html/media:ro
+      - backend_static:/usr/share/nginx/html/static:ro
     networks:
       - bookmark_net
 
 volumes:
   mongodb_data:
   redis_data:
+  backend_media:
+  backend_static:
 
 networks:
   bookmark_net:

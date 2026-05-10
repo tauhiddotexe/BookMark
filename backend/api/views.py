@@ -96,11 +96,19 @@ class MeView(generics.RetrieveAPIView):
 
 class FeedView(generics.ListAPIView):
     serializer_class = ReviewSerializer
-    
-    @method_decorator(cache_page(60 * 5))
-    @method_decorator(vary_on_headers("Authorization"))
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
+    def list(self, request, *args, **kwargs):
+        from django.core.cache import cache
+        user_id = request.user.id if request.user.is_authenticated else "anon"
+        page = request.query_params.get("page", 1)
+        cache_key = f"feed_user_{user_id}_page_{page}"
+        
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+            
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, 60 * 5)
+        return response
 
     permission_classes = [permissions.AllowAny]
     pagination_class = StandardResultsSetPagination
