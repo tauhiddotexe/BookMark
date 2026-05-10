@@ -6,4 +6,12 @@ __pycache__/
 backend/db.sqlite3
 backend/media/
 backend/staticfiles/
+backend/venv/
 my-skills/
+
+
+# Graphify
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/graph.html
+!graphify-out/GRAPH_REPORT.md

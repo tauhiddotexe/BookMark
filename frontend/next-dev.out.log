@@ -1,0 +1,11 @@
+
+> bookmark-frontend@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.14
+   - Local:        http://localhost:3001
+   - Network:      http://10.180.64.51:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 36.5s

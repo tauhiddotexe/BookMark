@@ -68,9 +68,10 @@ DATABASES = {
         ssl_require=os.getenv("DB_SSLMODE", "require").lower() == "require",
     )
 }
-DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-DATABASES["default"].setdefault("OPTIONS", {})
-DATABASES["default"]["OPTIONS"]["connect_timeout"] = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+if DATABASES["default"]["ENGINE"] != "django.db.backends.sqlite3":
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    DATABASES["default"].setdefault("OPTIONS", {})
+    DATABASES["default"]["OPTIONS"]["connect_timeout"] = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
 
 CACHES = {
     "default": {
