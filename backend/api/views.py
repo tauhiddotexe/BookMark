@@ -51,19 +51,30 @@ def create_notification(*, recipient, actor, notification_type, review=None, com
     if recipient == actor:
         return None
 
+    data = {}
+    if review:
+        data["review_id"] = review.id
+    if comment:
+        data["comment_id"] = comment.id
+    if follow:
+        data["follow_id"] = follow.id
+
     payload = {
         "recipient": recipient,
         "actor": actor,
         "notification_type": notification_type,
-        "review": review,
-        "comment": comment,
-        "follow": follow,
+        "data": data,
     }
 
     if notification_type == Notification.Type.COMMENT:
         return Notification.objects.create(**payload)
 
-    notification, _ = Notification.objects.get_or_create(**payload)
+    notification, _ = Notification.objects.get_or_create(
+        recipient=recipient,
+        actor=actor,
+        notification_type=notification_type,
+        defaults={"data": data}
+    )
     return notification
 
 

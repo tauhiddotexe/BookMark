@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
@@ -9,9 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = BASE_DIR.parent
 load_dotenv(REPO_DIR / ".env")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-if not DATABASE_URL:
-    raise ImproperlyConfigured("DATABASE_URL must be set in .env for Supabase PostgreSQL.")
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/bookmark")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "bookmark-dev-secret-key-change-me-2026")
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
@@ -62,16 +59,14 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
-    "default": dj_database_url.parse(
-        DATABASE_URL,
-        conn_max_age=int(os.getenv("DB_CONN_MAX_AGE", "0")),
-        ssl_require=os.getenv("DB_SSLMODE", "require").lower() == "require",
-    )
+    "default": {
+        "ENGINE": "django_mongodb_backend",
+        "NAME": MONGODB_URL.split("/")[-1].split("?")[0] or "bookmark",
+        "CLIENT": {
+            "host": MONGODB_URL,
+        },
+    }
 }
-if DATABASES["default"]["ENGINE"] != "django.db.backends.sqlite3":
-    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-    DATABASES["default"].setdefault("OPTIONS", {})
-    DATABASES["default"]["OPTIONS"]["connect_timeout"] = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
 
 CACHES = {
     "default": {

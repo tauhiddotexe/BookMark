@@ -215,8 +215,8 @@ class FollowSerializer(serializers.ModelSerializer):
 
 class NotificationSerializer(serializers.ModelSerializer):
     actor = UserSerializer(read_only=True)
-    review_id = serializers.IntegerField(source="review_id", read_only=True)
-    comment_id = serializers.IntegerField(source="comment_id", read_only=True)
+    review_id = serializers.SerializerMethodField()
+    comment_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Notification
@@ -231,6 +231,12 @@ class NotificationSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+    def get_review_id(self, obj):
+        return obj.data.get("review_id")
+
+    def get_comment_id(self, obj):
+        return obj.data.get("comment_id")
 
 
 class ProfileSerializer(serializers.ModelSerializer):

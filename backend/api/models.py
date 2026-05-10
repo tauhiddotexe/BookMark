@@ -68,14 +68,11 @@ class Follow(TimeStampedModel):
     following = models.ForeignKey(User, on_delete=models.CASCADE, related_name="follower_links")
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["follower", "following"], name="unique_follow_relationship"),
-            models.CheckConstraint(
-                condition=~models.Q(follower=models.F("following")),
-                name="prevent_self_follow",
-            ),
-        ]
         ordering = ["-created_at"]
+        # MongoDB handles unique indexes fine, but complex check constraints are avoided
+        indexes = [
+            models.Index(fields=["follower", "following"]),
+        ]
 
     def __str__(self):
         return f"{self.follower.username} -> {self.following.username}"
@@ -84,6 +81,8 @@ class Follow(TimeStampedModel):
 class Review(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reviews")
     book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name="reviews")
+    # Denormalization for NoSQL performance
+    book_title = models.CharField(max_length=255, blank=True)
     rating = models.DecimalField(
         max_digits=2,
         decimal_places=1,
@@ -94,12 +93,14 @@ class Review(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["user", "book"], name="unique_review_per_user_book"),
-        ]
 
     def __str__(self):
         return f"{self.user.username} on {self.book.title}"
+
+    def save(self, *args, **kwargs):
+        if not self.book_title and self.book:
+            self.book_title = self.book.title
+        super().save(*args, **kwargs)
 
 
 class Comment(TimeStampedModel):
@@ -119,8 +120,8 @@ class ReviewLike(TimeStampedModel):
     review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name="likes")
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["user", "review"], name="unique_review_like"),
+        indexes = [
+            models.Index(fields=["user", "review"]),
         ]
 
 
@@ -133,9 +134,10 @@ class Notification(TimeStampedModel):
     recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
     actor = models.ForeignKey(User, on_delete=models.CASCADE, related_name="triggered_notifications")
     notification_type = models.CharField(max_length=20, choices=Type.choices)
-    review = models.ForeignKey("Review", on_delete=models.CASCADE, null=True, blank=True, related_name="notifications")
-    comment = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True, related_name="notifications")
-    follow = models.ForeignKey("Follow", on_delete=models.CASCADE, null=True, blank=True, related_name="notifications")
+    
+    # Document Pattern: Flexible data field instead of multiple nullable FKs
+    data = models.JSONField(default=dict, blank=True)
+    
     is_read = models.BooleanField(default=False)
 
     class Meta:
@@ -156,8 +158,8 @@ class ShelfEntry(TimeStampedModel):
     shelf = models.CharField(max_length=20, choices=Shelf.choices)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["user", "book", "shelf"], name="unique_user_book_shelf"),
+        indexes = [
+            models.Index(fields=["user", "book", "shelf"]),
         ]
 
 
@@ -182,6 +184,3 @@ class BookListItem(TimeStampedModel):
 
     class Meta:
         ordering = ["position", "created_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["book_list", "book"], name="unique_book_list_item"),
-        ]
