@@ -20,6 +20,11 @@ class Profile(TimeStampedModel):
     display_name = models.CharField(max_length=150, blank=True)
     avatar_url = models.URLField(blank=True, max_length=500)
     bio = models.TextField(blank=True)
+    
+    # Denormalized for MongoDB performance
+    followers_count = models.PositiveIntegerField(default=0)
+    following_count = models.PositiveIntegerField(default=0)
+    review_count = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return self.user.username
@@ -69,7 +74,6 @@ class Follow(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
-        # MongoDB handles unique indexes fine, but complex check constraints are avoided
         indexes = [
             models.Index(fields=["follower", "following"]),
         ]
@@ -77,12 +81,31 @@ class Follow(TimeStampedModel):
     def __str__(self):
         return f"{self.follower.username} -> {self.following.username}"
 
+    def save(self, *args, **kwargs):
+        created = self.pk is None
+        super().save(*args, **kwargs)
+        if created:
+            self.follower.profile.following_count += 1
+            self.follower.profile.save(update_fields=['following_count'])
+            self.following.profile.followers_count += 1
+            self.following.profile.save(update_fields=['followers_count'])
+
+    def delete(self, *args, **kwargs):
+        self.follower.profile.following_count = max(0, self.follower.profile.following_count - 1)
+        self.follower.profile.save(update_fields=['following_count'])
+        self.following.profile.followers_count = max(0, self.following.profile.followers_count - 1)
+        self.following.profile.save(update_fields=['followers_count'])
+        super().delete(*args, **kwargs)
+
 
 class Review(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reviews")
     book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name="reviews")
     # Denormalization for NoSQL performance
     book_title = models.CharField(max_length=255, blank=True)
+    likes_count = models.PositiveIntegerField(default=0)
+    comments_count = models.PositiveIntegerField(default=0)
+    
     rating = models.DecimalField(
         max_digits=2,
         decimal_places=1,
@@ -98,9 +121,18 @@ class Review(TimeStampedModel):
         return f"{self.user.username} on {self.book.title}"
 
     def save(self, *args, **kwargs):
+        created = self.pk is None
         if not self.book_title and self.book:
             self.book_title = self.book.title
         super().save(*args, **kwargs)
+        if created:
+            self.user.profile.review_count += 1
+            self.user.profile.save(update_fields=['review_count'])
+
+    def delete(self, *args, **kwargs):
+        self.user.profile.review_count = max(0, self.user.profile.review_count - 1)
+        self.user.profile.save(update_fields=['review_count'])
+        super().delete(*args, **kwargs)
 
 
 class Comment(TimeStampedModel):
@@ -114,6 +146,18 @@ class Comment(TimeStampedModel):
     def __str__(self):
         return f"{self.user.username} on review {self.review_id}"
 
+    def save(self, *args, **kwargs):
+        created = self.pk is None
+        super().save(*args, **kwargs)
+        if created:
+            self.review.comments_count += 1
+            self.review.save(update_fields=['comments_count'])
+
+    def delete(self, *args, **kwargs):
+        self.review.comments_count = max(0, self.review.comments_count - 1)
+        self.review.save(update_fields=['comments_count'])
+        super().delete(*args, **kwargs)
+
 
 class ReviewLike(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="review_likes")
@@ -123,6 +167,18 @@ class ReviewLike(TimeStampedModel):
         indexes = [
             models.Index(fields=["user", "review"]),
         ]
+
+    def save(self, *args, **kwargs):
+        created = self.pk is None
+        super().save(*args, **kwargs)
+        if created:
+            self.review.likes_count += 1
+            self.review.save(update_fields=['likes_count'])
+
+    def delete(self, *args, **kwargs):
+        self.review.likes_count = max(0, self.review.likes_count - 1)
+        self.review.save(update_fields=['likes_count'])
+        super().delete(*args, **kwargs)
 
 
 class Notification(TimeStampedModel):

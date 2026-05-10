@@ -29,10 +29,16 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "username", "email", "profile", "followers_count", "following_count"]
 
     def get_followers_count(self, obj):
-        return getattr(obj, "followers_count", obj.follower_links.count())
+        try:
+            return obj.profile.followers_count
+        except:
+            return obj.follower_links.count()
 
     def get_following_count(self, obj):
-        return getattr(obj, "following_count", obj.following_links.count())
+        try:
+            return obj.profile.following_count
+        except:
+            return obj.following_links.count()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -153,7 +159,6 @@ class BookDetailSerializer(BookSerializer):
         reviews = (
             obj.reviews.select_related("user", "user__profile", "book")
             .prefetch_related(latest_comments_prefetch())
-            .annotate(likes_count=Count("likes", distinct=True), comments_count=Count("comments", distinct=True))
             .order_by("-created_at")[:5]
         )
         return ReviewSerializer(reviews, many=True).data
@@ -264,16 +269,21 @@ class ProfileSerializer(serializers.ModelSerializer):
         reviews = (
             obj.reviews.select_related("user", "user__profile", "book")
             .prefetch_related(latest_comments_prefetch())
-            .annotate(likes_count=Count("likes", distinct=True), comments_count=Count("comments", distinct=True))
             .order_by("-created_at")[:10]
         )
         return ReviewSerializer(reviews, many=True).data
 
     def get_followers_count(self, obj):
-        return getattr(obj, "followers_count", obj.follower_links.count())
+        try:
+            return obj.profile.followers_count
+        except:
+            return obj.follower_links.count()
 
     def get_following_count(self, obj):
-        return getattr(obj, "following_count", obj.following_links.count())
+        try:
+            return obj.profile.following_count
+        except:
+            return obj.following_links.count()
 
     def get_shelves(self, obj):
         grouped = {choice: [] for choice, _ in ShelfEntry.Shelf.choices}

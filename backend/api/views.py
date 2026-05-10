@@ -2,7 +2,7 @@ import logging
 
 import requests
 from django.contrib.auth.models import User
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
+from django.db.models import Case, IntegerField, Prefetch, Q, Value, When, F
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -46,7 +46,6 @@ def base_review_queryset():
     return (
         Review.objects.select_related("user", "user__profile", "book")
         .prefetch_related(latest_comments_prefetch())
-        .annotate(likes_count=Count("likes", distinct=True), comments_count=Count("comments", distinct=True))
     )
 
 
@@ -328,10 +327,6 @@ class ProfileView(generics.RetrieveAPIView):
     queryset = (
         User.objects.select_related("profile")
         .prefetch_related("shelf_entries__book", "book_lists__items__book")
-        .annotate(
-            followers_count=Count("follower_links", distinct=True),
-            following_count=Count("following_links", distinct=True),
-        )
     )
 
 
@@ -422,9 +417,8 @@ def stats_view(_request):
             "notifications": Notification.objects.count(),
             "lists": BookList.objects.count(),
             "top_reviewers": list(
-                User.objects.annotate(review_count=Count("reviews"))
-                .order_by("-review_count", "username")
-                .values("username", "review_count")[:5]
+                User.objects.order_by("-profile__review_count", "username")
+                .values("username", review_count=F("profile__review_count"))[:5]
             ),
         }
     )
