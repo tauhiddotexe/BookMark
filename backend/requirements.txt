@@ -4,6 +4,9 @@ djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
 django-mongodb-backend==6.0.3
 pymongo[srv]==4.17.0
+django-redis==5.4.0
+redis==5.0.3
+gunicorn==21.2.0
 python-dotenv==1.1.1
 requests==2.33.1
 pillow==12.1.1

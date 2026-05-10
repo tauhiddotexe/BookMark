@@ -7,6 +7,9 @@ from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from django.views.decorators.vary import vary_on_headers
 
 from .models import Book, BookList, Comment, Follow, Notification, Review, ReviewLike, ShelfEntry
 from .pagination import CommentPagination, NotificationPagination, StandardResultsSetPagination
@@ -93,6 +96,12 @@ class MeView(generics.RetrieveAPIView):
 
 class FeedView(generics.ListAPIView):
     serializer_class = ReviewSerializer
+    
+    @method_decorator(cache_page(60 * 5))
+    @method_decorator(vary_on_headers("Authorization"))
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
     permission_classes = [permissions.AllowAny]
     pagination_class = StandardResultsSetPagination
 
@@ -136,6 +145,7 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
             return BookDetailSerializer
         return BookSerializer
 
+    @method_decorator(cache_page(60 * 15))
     @action(detail=False, methods=["get"])
     def search(self, request):
         query = request.query_params.get("q", "").strip()
@@ -146,6 +156,7 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
             results = local_book_results(query=query, limit=12)
         return Response({"results": BookSearchResultSerializer(self._attach_existing_books(results), many=True).data})
 
+    @method_decorator(cache_page(60 * 15))
     @action(detail=False, methods=["get"])
     def discover(self, request):
         results = discover_google_books()
@@ -391,6 +402,7 @@ class BookListViewSet(viewsets.ModelViewSet):
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
+@cache_page(60 * 15)
 def stats_view(_request):
     return Response(
         {
