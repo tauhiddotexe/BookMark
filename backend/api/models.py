@@ -7,6 +7,9 @@ from django.db.models import Avg
 from django.utils.text import slugify
 
 
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -208,6 +211,8 @@ class ShelfEntry(TimeStampedModel):
         READ = "read", "Read"
         READING = "reading", "Reading"
         WANT = "want_to_read", "Want to Read"
+        DROPPED = "dropped", "Dropped"
+        REREADING = "re_reading", "Re-reading"
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shelf_entries")
     book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name="shelf_entries")
@@ -224,6 +229,8 @@ class BookList(TimeStampedModel):
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
     is_public = models.BooleanField(default=True)
+    likes_count = models.PositiveIntegerField(default=0)
+    comments_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ["-updated_at"]
@@ -240,3 +247,171 @@ class BookListItem(TimeStampedModel):
 
     class Meta:
         ordering = ["position", "created_at"]
+
+
+class BookListLike(TimeStampedModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="list_likes")
+    book_list = models.ForeignKey(BookList, on_delete=models.CASCADE, related_name="likes")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "book_list"], name="unique_list_like")
+        ]
+
+    def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        super().save(*args, **kwargs)
+        if is_new:
+            self.book_list.likes_count = self.book_list.likes.count()
+            self.book_list.save(update_fields=["likes_count"])
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        self.book_list.likes_count = self.book_list.likes.count()
+        self.book_list.save(update_fields=["likes_count"])
+
+
+class DiaryEntry(TimeStampedModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="diary_entries")
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name="diary_entries")
+    
+    # Diary specific fields
+    read_date = models.DateField()
+    rating = models.DecimalField(
+        max_digits=2,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.5")), MaxValueValidator(Decimal("5.0"))],
+    )
+    review_text = models.TextField(blank=True)
+    is_reread = models.BooleanField(default=False)
+    contains_spoilers = models.BooleanField(default=False)
+    
+    # Social stats for the log/entry
+    likes_count = models.PositiveIntegerField(default=0)
+    comments_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-read_date", "-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-read_date"]),
+            models.Index(fields=["book", "-read_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} logged {self.book.title} on {self.read_date}"
+
+    def save(self, *args, **kwargs):
+        created = self.pk is None
+        super().save(*args, **kwargs)
+        # Automatically update shelf to READ when diary entry is created
+        ShelfEntry.objects.update_or_create(
+            user=self.user,
+            book=self.book,
+            defaults={"shelf": ShelfEntry.Shelf.READ}
+        )
+        # Update book metrics if rating is provided
+        if self.rating:
+            self.book.refresh_metrics()
+
+class Activity(TimeStampedModel):
+    class ActivityType(models.TextChoices):
+        LOG = "log", "Logged a book"
+        REVIEW = "review", "Reviewed a book"
+        FOLLOW = "follow", "Followed a user"
+        SHELF = "shelf", "Added to shelf"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="activities")
+    activity_type = models.CharField(max_length=20, choices=ActivityType.choices)
+    
+    # Generic references using IDs
+    content_id = models.CharField(max_length=120, blank=True)
+    content_type_label = models.CharField(max_length=50, blank=True)
+    
+    # Metadata for display without joining
+    book = models.ForeignKey(Book, on_delete=models.SET_NULL, null=True, blank=True, related_name="activities")
+    target_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="target_activities")
+    
+    # Data for the feed item (JSON)
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["activity_type", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.activity_type} - {self.created_at}"
+
+# Signals for Activity Feed
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=DiaryEntry)
+def create_diary_activity(sender, instance, created, **kwargs):
+    if created:
+        Activity.objects.create(
+            user=instance.user,
+            activity_type=Activity.ActivityType.LOG,
+            content_id=str(instance.id),
+            content_type_label="diaryentry",
+            book=instance.book,
+            data={
+                "rating": str(instance.rating) if instance.rating else None,
+                "read_date": str(instance.read_date),
+                "is_reread": instance.is_reread
+            }
+        )
+
+@receiver(post_save, sender=Review)
+def create_review_activity(sender, instance, created, **kwargs):
+    if created:
+        Activity.objects.create(
+            user=instance.user,
+            activity_type=Activity.ActivityType.REVIEW,
+            content_id=str(instance.id),
+            content_type_label="review",
+            book=instance.book,
+            data={
+                "rating": str(instance.rating),
+                "review_snippet": instance.review_text[:140] + "..." if len(instance.review_text) > 140 else instance.review_text
+            }
+        )
+
+@receiver(post_save, sender=Follow)
+def create_follow_activity(sender, instance, created, **kwargs):
+    if created:
+        Activity.objects.create(
+            user=instance.follower,
+            activity_type=Activity.ActivityType.FOLLOW,
+            content_id=str(instance.id),
+            content_type_label="follow",
+            target_user=instance.following
+        )
+
+@receiver(post_save, sender=BookList)
+def create_list_activity(sender, instance, created, **kwargs):
+    if created and instance.is_public:
+        Activity.objects.create(
+            user=instance.user,
+            activity_type=Activity.ActivityType.SHELF,
+            content_id=str(instance.id),
+            content_type_label="list",
+            data={
+                "list_name": instance.name,
+                "item_count": instance.items.count()
+            }
+        )
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.get_or_create(user=instance, defaults={"display_name": instance.username})
+
+@receiver(post_save, sender=User)
+def save_user_profile(sender, instance, **kwargs):
+    if hasattr(instance, 'profile'):
+        instance.profile.save()

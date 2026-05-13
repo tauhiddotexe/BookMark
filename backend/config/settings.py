@@ -23,7 +23,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
-    "rest_framework_simplejwt",
     "api",
 ]
 
@@ -62,9 +61,7 @@ DATABASES = {
     "default": {
         "ENGINE": "django_mongodb_backend",
         "NAME": MONGODB_URL.split("/")[-1].split("?")[0] or "bookmark",
-        "CLIENT": {
-            "host": MONGODB_URL,
-        },
+        "HOST": MONGODB_URL,
     }
 }
 
@@ -109,7 +106,8 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
+SILENCED_SYSTEM_CHECKS = ["mongodb.fields.auto.E001"]
 
 CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL_ORIGINS", "True").lower() == "true"
 CORS_ALLOWED_ORIGINS = [
@@ -120,10 +118,10 @@ CORS_ALLOWED_ORIGINS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "api.authentication.FirebaseAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ),
     "DEFAULT_PAGINATION_CLASS": "api.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 10,
@@ -132,18 +130,15 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle"
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/day",
-        "user": "1000/day"
+        "anon": "1000/day",
+        "user": "10000/day"
     }
 }
 
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
 
-SIMPLE_JWT = {
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "SIGNING_KEY": os.getenv("JWT_SECRET_KEY", SECRET_KEY),
-}
+
 
 LOGGING = {
     "version": 1,

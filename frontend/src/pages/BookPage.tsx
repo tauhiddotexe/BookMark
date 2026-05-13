@@ -120,7 +120,26 @@ export function BookPage() {
         <a href="#write-review" className="action-link sticky-review-button">
           Add review
         </a>
-        <BookLogPanel slug={book.slug} />
+        <BookLogPanel slug={book.slug} bookId={book.id} bookTitle={book.title} />
+        
+        {book.diary_entries?.length ? (
+          <section className="panel diary-panel">
+            <div className="section-head">
+              <h2>Your Diary</h2>
+            </div>
+            <div className="stack" style={{ gap: 12 }}>
+              {book.diary_entries.map((entry) => (
+                <div key={entry.id} className="diary-entry-pill">
+                  <div className="diary-entry-meta">
+                    <strong>{new Date(entry.read_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</strong>
+                    {entry.rating ? <span className="stars">{formatStars(entry.rating)}</span> : null}
+                  </div>
+                  {entry.is_reread && <span className="chip">Reread</span>}
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </aside>
     </div>
   );

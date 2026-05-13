@@ -4,10 +4,12 @@ import { Link, useParams } from "react-router-dom";
 import { BookCover } from "@/components/book-cover";
 import { ProfileBooks } from "@/components/profile-books";
 import { ReviewCard } from "@/components/review-card";
+import { ProfileStats } from "@/components/profile-stats";
 import { Loading } from "@/components/loading";
 import { formatCompactNumber } from "@/lib/format";
-import { getProfile } from "@/lib/api";
+import { getProfile, followUser, unfollowUser, getAccessToken } from "@/lib/api";
 import { ProfileDetail } from "@/lib/types";
+import { useToast } from "@/components/toast-provider";
 
 const labels: Record<string, string> = { read: "Read", reading: "Reading", want_to_read: "Want to Read" };
 
@@ -16,6 +18,10 @@ export function ProfilePage() {
   const [profile, setProfile] = useState<ProfileDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [following, setFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const { addToast } = useToast();
+  const token = getAccessToken();
 
   useEffect(() => {
     if (!username) return;
@@ -23,10 +29,11 @@ export function ProfilePage() {
 
     setLoading(true);
     setError("");
-    getProfile(username)
+    getProfile(username, token || undefined)
       .then((data) => {
         if (cancelled) return;
         setProfile(data);
+        setFollowing(data.is_following);
         document.title = `@${data.username} — Bookmark`;
       })
       .catch((err) => {
@@ -56,10 +63,40 @@ export function ProfilePage() {
           <div className="profile-column">
             <div className="profile-meta">
               <span className="pill">@{profile.username}</span>
-              <span className="chip">{formatCompactNumber(profile.followers_count)} followers</span>
+              <span className="chip">{formatCompactNumber(profile.followers_count + (following && !profile.is_following ? 1 : (!following && profile.is_following ? -1 : 0)))} followers</span>
               <span className="chip">{formatCompactNumber(profile.following_count)} following</span>
+              {token && profile.username !== localStorage.getItem("bookmark_username") && (
+                <button 
+                  className={`btn ${following ? "btn-secondary" : "btn-primary"} btn-sm`}
+                  onClick={async () => {
+                    if (!token) return;
+                    setFollowLoading(true);
+                    try {
+                      if (following) {
+                        await unfollowUser(profile.username, token);
+                        setFollowing(false);
+                        addToast("Unfollowed user", "info");
+                      } else {
+                        await followUser(profile.username, token);
+                        setFollowing(true);
+                        addToast("Following user", "success");
+                      }
+                    } catch (err) {
+                      addToast("Failed to update follow status", "error");
+                    } finally {
+                      setFollowLoading(false);
+                    }
+                  }}
+                  disabled={followLoading}
+                >
+                  {following ? "Unfollow" : "Follow"}
+                </button>
+              )}
             </div>
-            <h1 className="profile-name">{profile.profile.display_name || profile.username}</h1>
+            <h1 className="profile-name">
+              {profile.profile.display_name || profile.username}
+              {profile.is_following && <span className="follows-you-badge">Follows you</span>}
+            </h1>
             <p className="lede">{profile.profile.bio || "Building a public reading life, one review at a time."}</p>
           </div>
         </div>
@@ -83,6 +120,8 @@ export function ProfilePage() {
           <span className="muted">Public lists</span>
         </article>
       </section>
+
+      <ProfileStats reviews={profile.reviews} />
 
       {coverWall.length ? (
         <section className="card rail-card">

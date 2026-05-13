@@ -1,21 +1,26 @@
 import { useEffect, useState } from "react";
-
 import { getBookState, setBookShelf } from "@/lib/api";
 import { getAccessToken } from "@/lib/session";
 import { useToast } from "@/components/toast-provider";
+import { DiaryLogModal } from "./diary-log-modal";
+import { BookIcon, CalendarIcon } from "./icons";
 
 const OPTIONS = [
   { value: "want_to_read", label: "Want to Read" },
   { value: "reading", label: "Reading" },
-  { value: "read", label: "Read" }
+  { value: "re_reading", label: "Re-reading" },
+  { value: "read", label: "Read" },
+  { value: "dropped", label: "Dropped" }
 ];
 
-export function BookLogPanel({ slug }: { slug: string }) {
+export function BookLogPanel({ slug, bookId, bookTitle }: { slug: string; bookId: number; bookTitle: string }) {
   const { pushToast } = useToast();
   const [selected, setSelected] = useState("");
   const [reviewed, setReviewed] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [bookId, setBookId] = useState<number | null>(null);
 
   useEffect(() => {
     const access = getAccessToken();
@@ -24,6 +29,9 @@ export function BookLogPanel({ slug }: { slug: string }) {
       .then((state) => {
         setSelected(state.shelves[0] || "");
         setReviewed(Boolean(state.review));
+        // We'll need the book ID for the diary entry. 
+        // If it's not in state, we might need to fetch the full book object or pass it as a prop.
+        // For now, let's assume we'll get it from the book page or another way.
       })
       .catch(() => undefined);
   }, [slug]);
@@ -70,10 +78,33 @@ export function BookLogPanel({ slug }: { slug: string }) {
         </button>
       </div>
 
-      <div className="helper-text">
-        {selected ? `Currently shelved as ${OPTIONS.find((item) => item.value === selected)?.label || selected}.` : "This book is not on any shelf yet."}
+      <div className="log-footer stack" style={{ gap: 12, marginTop: 8 }}>
+        <button 
+          type="button" 
+          className="action-link" 
+          style={{ width: "100%" }}
+          onClick={() => setShowLogModal(true)}
+        >
+          <CalendarIcon size={18} /> Log this book...
+        </button>
+        <div className="helper-text">
+          {selected ? `Currently shelved as ${OPTIONS.find((item) => item.value === selected)?.label || selected}.` : "This book is not on any shelf yet."}
+        </div>
       </div>
+
       {error ? <p style={{ color: "var(--danger)", margin: 0 }}>{error}</p> : null}
+
+      {showLogModal && (
+        <DiaryLogModal 
+          bookId={bookId}
+          bookTitle={bookTitle}
+          onClose={() => setShowLogModal(false)}
+          onSuccess={() => {
+            pushToast("Log entry saved.");
+            // Refresh state if needed
+          }}
+        />
+      )}
     </section>
   );
 }

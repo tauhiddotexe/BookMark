@@ -16,3 +16,8 @@ graphify-out/*
 !graphify-out/graph.json
 !graphify-out/graph.html
 !graphify-out/GRAPH_REPORT.md
+
+# Firebase
+firebase-admin-sdk.json
+backend/*.json
+*.json.local

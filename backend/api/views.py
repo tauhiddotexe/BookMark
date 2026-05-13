@@ -4,14 +4,14 @@ import requests
 from django.contrib.auth.models import User
 from django.db.models import Case, IntegerField, Prefetch, Q, Value, When, F
 from rest_framework import generics, permissions, status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
 
-from .models import Book, BookList, Comment, Follow, Notification, Review, ReviewLike, ShelfEntry
+from .models import Activity, Book, BookList, Comment, DiaryEntry, Follow, Notification, Review, ReviewLike, ShelfEntry
 from .pagination import CommentPagination, NotificationPagination, StandardResultsSetPagination
 from .permissions import IsOwnerOrReadOnly
 from .serializers import (
@@ -23,11 +23,12 @@ from .serializers import (
     FollowSerializer,
     NotificationSerializer,
     ProfileSerializer,
-    RegisterSerializer,
     ReviewCreateSerializer,
     ReviewSerializer,
     ShelfEntrySerializer,
+    DiaryEntrySerializer,
     UserSerializer,
+    ActivitySerializer,
 )
 from .services.google_books import discover_google_books, local_book_results, search_google_books, sync_google_book
 
@@ -80,9 +81,7 @@ def create_notification(*, recipient, actor, notification_type, review=None, com
     return notification
 
 
-class RegisterView(generics.CreateAPIView):
-    serializer_class = RegisterSerializer
-    permission_classes = [permissions.AllowAny]
+
 
 
 class MeView(generics.RetrieveAPIView):
@@ -203,10 +202,12 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
         book = self.get_object()
         shelves = list(ShelfEntry.objects.filter(user=request.user, book=book).values_list("shelf", flat=True))
         review = Review.objects.filter(user=request.user, book=book).first()
+        diary_entries = DiaryEntry.objects.filter(user=request.user, book=book).order_by("-read_date")
         return Response(
             {
                 "shelves": shelves,
                 "review": {"id": review.id, "rating": review.rating, "review_text": review.review_text} if review else None,
+                "diary_entries": DiaryEntrySerializer(diary_entries, many=True).data,
             }
         )
 
@@ -216,7 +217,7 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
         shelf = request.data.get("shelf", "")
         ShelfEntry.objects.filter(user=request.user, book=book).delete()
         current = []
-        if shelf and shelf in dict(ShelfEntry.Shelf.choices):
+        if shelf and shelf in ShelfEntry.Shelf.values:
             ShelfEntry.objects.create(user=request.user, book=book, shelf=shelf)
             current = [shelf]
         return Response({"shelves": current})
@@ -386,6 +387,25 @@ class ShelfEntryViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
+class DiaryEntryViewSet(viewsets.ModelViewSet):
+    serializer_class = DiaryEntrySerializer
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        queryset = DiaryEntry.objects.select_related("user", "user__profile", "book")
+        username = self.request.query_params.get("username")
+        book_slug = self.request.query_params.get("book")
+        if username:
+            queryset = queryset.filter(user__username=username)
+        if book_slug:
+            queryset = queryset.filter(book__slug=book_slug)
+        return queryset.order_by("-read_date", "-created_at")
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
 class BookListViewSet(viewsets.ModelViewSet):
     serializer_class = BookListSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
@@ -422,3 +442,38 @@ def stats_view(_request):
             ),
         }
     )
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+@throttle_classes([])
+def health_check(_request):
+    return Response({"status": "healthy"})
+class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = ActivitySerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        queryset = Activity.objects.all().select_related("user", "user__profile", "book", "target_user")
+        
+        feed_type = self.request.query_params.get("feed", "global")
+        user = self.request.user
+
+        if feed_type == "following" and user.is_authenticated:
+            following_ids = user.following_links.values_list("following_id", flat=True)
+            return queryset.filter(user_id__in=following_ids)
+        
+        return queryset
+
+    @action(detail=False, methods=["get"])
+    def my_network(self, request):
+        if not request.user.is_authenticated:
+            return Response([])
+        
+        following_ids = request.user.following_links.values_list("following_id", flat=True)
+        activities = Activity.objects.filter(user_id__in=following_ids).select_related(
+            "user", "user__profile", "book", "target_user"
+        )[:50]
+        
+        serializer = self.get_serializer(activities, many=True)
+        return Response(serializer.data)

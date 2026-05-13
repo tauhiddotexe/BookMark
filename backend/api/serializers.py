@@ -2,7 +2,10 @@ from django.contrib.auth.models import User
 from django.db.models import Count, Prefetch
 from rest_framework import serializers
 
-from .models import Book, BookList, BookListItem, Comment, Follow, Notification, Profile, Review, ShelfEntry
+from .models import (
+    Activity, Book, BookList, BookListItem, Comment, DiaryEntry, Follow,
+    Notification, Profile, Review, ShelfEntry
+)
 
 
 def latest_comments_prefetch():
@@ -39,25 +42,6 @@ class UserSerializer(serializers.ModelSerializer):
             return obj.profile.following_count
         except:
             return obj.following_links.count()
-
-
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=6)
-    email = serializers.EmailField(required=False, allow_blank=True)
-    avatar_url = serializers.CharField(write_only=True, required=False, allow_blank=True)
-
-    class Meta:
-        model = User
-        fields = ["username", "email", "password", "avatar_url"]
-
-    def create(self, validated_data):
-        avatar_url = validated_data.pop("avatar_url", "")
-        user = User.objects.create_user(**validated_data)
-        Profile.objects.update_or_create(
-            user=user,
-            defaults={"display_name": user.username, "avatar_url": avatar_url},
-        )
-        return user
 
 
 class BookSerializer(serializers.ModelSerializer):
@@ -173,6 +157,36 @@ class ShelfEntrySerializer(serializers.ModelSerializer):
         fields = ["id", "shelf", "book", "book_id", "created_at"]
 
 
+class DiaryEntrySerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    book = BookSerializer(read_only=True)
+    book_id = serializers.PrimaryKeyRelatedField(source="book", queryset=Book.objects.all(), write_only=True)
+
+    class Meta:
+        model = DiaryEntry
+        fields = [
+            "id",
+            "user",
+            "book",
+            "book_id",
+            "read_date",
+            "rating",
+            "review_text",
+            "is_reread",
+            "contains_spoilers",
+            "likes_count",
+            "comments_count",
+            "created_at",
+        ]
+        read_only_fields = ["likes_count", "comments_count"]
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            attrs["user"] = request.user
+        return attrs
+
+
 class BookListItemSerializer(serializers.ModelSerializer):
     book = BookSerializer(read_only=True)
     book_id = serializers.PrimaryKeyRelatedField(source="book", queryset=Book.objects.all(), write_only=True)
@@ -249,8 +263,10 @@ class ProfileSerializer(serializers.ModelSerializer):
     reviews = serializers.SerializerMethodField()
     lists = BookListSerializer(many=True, source="book_lists", read_only=True)
     shelves = serializers.SerializerMethodField()
+    diary_entries = DiaryEntrySerializer(many=True, read_only=True)
     followers_count = serializers.SerializerMethodField()
     following_count = serializers.SerializerMethodField()
+    is_following = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -261,8 +277,10 @@ class ProfileSerializer(serializers.ModelSerializer):
             "reviews",
             "lists",
             "shelves",
+            "diary_entries",
             "followers_count",
             "following_count",
+            "is_following",
         ]
 
     def get_reviews(self, obj):
@@ -285,6 +303,12 @@ class ProfileSerializer(serializers.ModelSerializer):
         except:
             return obj.following_links.count()
 
+    def get_is_following(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return Follow.objects.filter(follower=request.user, following=obj).exists()
+        return False
+
     def get_shelves(self, obj):
         grouped = {choice: [] for choice, _ in ShelfEntry.Shelf.choices}
         for entry in obj.shelf_entries.select_related("book").all():
@@ -303,3 +327,20 @@ class BookSearchResultSerializer(serializers.Serializer):
     cover_url = serializers.CharField(allow_blank=True)
     thumbnail_url = serializers.CharField(allow_blank=True)
     existing_slug = serializers.CharField(allow_blank=True, required=False)
+class ActivitySerializer(serializers.ModelSerializer):
+    user_name = serializers.ReadOnlyField(source="user.username")
+    display_name = serializers.ReadOnlyField(source="user.profile.display_name")
+    avatar_url = serializers.ReadOnlyField(source="user.profile.avatar_url")
+    book_title = serializers.ReadOnlyField(source="book.title")
+    book_slug = serializers.ReadOnlyField(source="book.slug")
+    book_cover = serializers.ReadOnlyField(source="book.cover_url")
+    target_user_name = serializers.ReadOnlyField(source="target_user.username")
+
+    class Meta:
+        model = Activity
+        fields = [
+            "id", "user", "user_name", "display_name", "avatar_url",
+            "activity_type", "content_id", "content_type_label",
+            "book", "book_title", "book_slug", "book_cover",
+            "target_user", "target_user_name", "data", "created_at"
+        ]

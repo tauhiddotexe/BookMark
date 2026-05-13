@@ -1,8 +1,7 @@
-version: '3.8'
 
 services:
   mongodb:
-    image: mongo:6.0
+    image: mongo:7.0
     container_name: bookmark_mongodb
     restart: unless-stopped
     ports:
@@ -14,9 +13,9 @@ services:
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
-      timeout: 5s
+      timeout: 20s
       retries: 5
-      start_period: 15s
+      start_period: 30s
 
   redis:
     image: redis:7.0-alpine
@@ -45,6 +44,7 @@ services:
     environment:
       - MONGODB_URL=mongodb://mongodb:27017/bookmark
       - REDIS_URL=redis://redis:6379/1
+      - DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost,backend,bookmark_backend,*
     depends_on:
       mongodb:
         condition: service_healthy
@@ -56,11 +56,11 @@ services:
     networks:
       - bookmark_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/stats/')\" || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health-check/')\" || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 20s
+      retries: 8
+      start_period: 90s
 
   frontend:
     build:

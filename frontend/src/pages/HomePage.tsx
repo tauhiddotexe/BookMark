@@ -7,8 +7,9 @@ import { BookSearchCard } from "@/components/book-search-card";
 import { FeedSection } from "@/components/feed-section";
 import { Hero } from "@/components/hero";
 import { Loading } from "@/components/loading";
-import { getFeed, getLists, getStats, discoverBooks } from "@/lib/api";
-import { FeedResponse, BookList, SearchBookResult } from "@/lib/types";
+import { getFeed, getStats, getLists, discoverBooks, getActivities } from "@/lib/api";
+import { FeedResponse, BookList, SearchBookResult, ActivityResponse } from "@/lib/types";
+import { ActivityFeed } from "@/components/activity-feed";
 
 type Stats = { users: number; books: number; reviews: number; lists: number };
 
@@ -18,16 +19,18 @@ export function HomePage() {
   const [lists, setLists] = useState<BookList[]>([]);
   const [discovered, setDiscovered] = useState<SearchBookResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activities, setActivities] = useState<ActivityResponse | null>(null);
+  const [feedMode, setFeedMode] = useState<"global" | "following">("global");
   const [feedError, setFeedError] = useState(false);
 
   useEffect(() => {
     document.title = "Bookmark — Your life in books";
     let cancelled = false;
 
-    Promise.allSettled([getFeed(), getStats(), getLists(), discoverBooks()])
-      .then(([feedRes, statsRes, listsRes, discoverRes]) => {
+    Promise.allSettled([getActivities(feedMode), getStats(), getLists(), discoverBooks()])
+      .then(([actRes, statsRes, listsRes, discoverRes]) => {
         if (cancelled) return;
-        if (feedRes.status === "fulfilled") setFeed(feedRes.value);
+        if (actRes.status === "fulfilled") setActivities(actRes.value);
         else setFeedError(true);
         if (statsRes.status === "fulfilled") setStats(statsRes.value);
         if (listsRes.status === "fulfilled") setLists(listsRes.value.results);
@@ -36,12 +39,10 @@ export function HomePage() {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, []);
+  }, [feedMode]);
 
   if (loading) return <Loading />;
 
-  const feedData: FeedResponse = feed || { count: 0, next: null, previous: null, results: [] };
-  const featuredBooks = feedData.results.length ? feedData.results.slice(0, 3).map((r) => r.book) : [];
   const discoveredBooks = discovered.slice(0, 3);
   const latestLists = lists.slice(0, 3);
 
@@ -52,23 +53,29 @@ export function HomePage() {
       <div className="content-grid">
         <section className="stack">
           <div className="section-head">
-            <h2>Recent Reviews</h2>
-            <Link to="/search" className="section-link">
-              Find something to review
-            </Link>
+            <div className="tabs">
+              <button 
+                className={`tab-btn ${feedMode === "global" ? "active" : ""}`}
+                onClick={() => setFeedMode("global")}
+              >
+                Global Activity
+              </button>
+              <button 
+                className={`tab-btn ${feedMode === "following" ? "active" : ""}`}
+                onClick={() => setFeedMode("following")}
+              >
+                Friends
+              </button>
+            </div>
           </div>
-          {feedError ? <p className="muted">The feed is temporarily unavailable. Try refreshing after the backend reconnects.</p> : null}
-          <FeedSection initialFeed={feedData} />
+          {feedError ? (
+            <p className="muted">The feed is temporarily unavailable. Try refreshing after the backend reconnects.</p>
+          ) : (
+            <ActivityFeed activities={activities?.results || []} />
+          )}
         </section>
 
         <aside className="stack">
-          <section className="card rail-card">
-            <div className="section-head">
-              <h2>Reviewed Books</h2>
-            </div>
-            <div className="stack">{featuredBooks.length ? featuredBooks.map((book) => <BookCard key={book.id} book={book} />) : <p className="muted">No reviewed books yet. Post a review to populate this rail.</p>}</div>
-          </section>
-
           <section className="card rail-card">
             <div className="section-head">
               <h2>Discover Next</h2>

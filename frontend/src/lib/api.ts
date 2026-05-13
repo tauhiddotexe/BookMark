@@ -2,6 +2,8 @@ import { BookDetail, BookList, BookState, FeedResponse, ProfileDetail, SearchBoo
 
 const API_BASE = "/api";
 
+export const getAccessToken = () => localStorage.getItem("token");
+
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
   authToken?: string;
@@ -31,11 +33,12 @@ function formatApiError(payload: unknown, status: number) {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { authToken, headers, body, ...init } = options;
+  const token = authToken || getAccessToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(headers || {})
     },
     body: body !== undefined ? JSON.stringify(body) : undefined
@@ -60,8 +63,14 @@ export const getStats = () =>
 export const getBook = (slug: string) =>
   request<BookDetail>(`/books/${slug}/`);
 
-export const getProfile = (username: string) =>
-  request<ProfileDetail>(`/profiles/${username}/`);
+export const getProfile = (username: string, token?: string) =>
+  request<ProfileDetail>(`/profiles/${username}/`, { authToken: token });
+
+export const followUser = (username: string, token: string) =>
+  request(`/profiles/${username}/follow/`, { method: "POST", authToken: token });
+
+export const unfollowUser = (username: string, token: string) =>
+  request(`/profiles/${username}/unfollow/`, { method: "POST", authToken: token });
 
 export const searchBooks = (query: string) =>
   request<{ results: SearchBookResult[] }>(`/books/search/?q=${encodeURIComponent(query)}`);
@@ -110,23 +119,41 @@ export const createReview = (
     body: payload
   });
 
+export const logDiaryEntry = (
+  token: string,
+  payload: { 
+    book_id: number; 
+    read_date: string; 
+    rating?: number; 
+    review_text?: string; 
+    is_reread: boolean; 
+    contains_spoilers: boolean 
+  }
+) =>
+  request("/diary/", {
+    method: "POST",
+    authToken: token,
+    body: payload
+  });
+
 export const toggleReviewLike = (reviewId: number, token: string, liked: boolean) =>
   request<{ likes_count: number }>(`/reviews/${reviewId}/${liked ? "unlike" : "like"}/`, {
     method: "POST",
     authToken: token
   });
 
-export const loginUser = (username: string, password: string) =>
-  request<{ access: string; refresh: string }>("/auth/login/", {
-    method: "POST",
-    body: { username, password }
-  });
-
-export const signupUser = (payload: Record<string, FormDataEntryValue | null>) =>
-  request("/auth/signup/", {
-    method: "POST",
-    body: payload
-  });
+export const syncUser = () =>
+  request<User>("/auth/me/");
 
 export const getCurrentUser = (token: string) =>
   request<User>("/auth/me/", { authToken: token });
+
+export async function getActivities(feed: "global" | "following" = "global", page = 1): Promise<ActivityResponse> {
+  const access = getAccessToken();
+  const headers: Record<string, string> = {};
+  if (access) headers["Authorization"] = `Bearer ${access}`;
+  
+  const res = await fetch(`${API_BASE}/activities/?feed=${feed}&page=${page}`, { headers });
+  if (!res.ok) throw new Error("Could not fetch activities.");
+  return res.json();
+}
