@@ -1,6 +1,6 @@
 import { BookDetail, BookList, BookState, FeedResponse, ProfileDetail, SearchBookResult, User } from "@/lib/types";
 
-const API_BASE = "/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 export const getAccessToken = () => localStorage.getItem("token");
 
@@ -148,12 +148,6 @@ export const syncUser = () =>
 export const getCurrentUser = (token: string) =>
   request<User>("/auth/me/", { authToken: token });
 
-export async function getActivities(feed: "global" | "following" = "global", page = 1): Promise<ActivityResponse> {
-  const access = getAccessToken();
-  const headers: Record<string, string> = {};
-  if (access) headers["Authorization"] = `Bearer ${access}`;
-  
-  const res = await fetch(`${API_BASE}/activities/?feed=${feed}&page=${page}`, { headers });
-  if (!res.ok) throw new Error("Could not fetch activities.");
-  return res.json();
+export function getActivities(feed: "global" | "following" = "global", page = 1) {
+  return request<ActivityResponse>(`/activities/?feed=${feed}&page=${page}`);
 }

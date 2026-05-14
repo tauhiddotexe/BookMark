@@ -8,21 +8,35 @@ from django.core.exceptions import ImproperlyConfigured
 
 def initialize_firebase():
     if not firebase_admin._apps:
+        # 1. Try loading from JSON string in environment variable
         service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        # 2. Try loading from file path in environment variable
+        service_account_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+
         if service_account_json:
             try:
                 cert = json.loads(service_account_json)
                 cred = credentials.Certificate(cert)
                 firebase_admin.initialize_app(cred)
+                return
             except Exception as e:
                 print(f"Error initializing Firebase with JSON: {e}")
-                firebase_admin.initialize_app()
-        else:
-            # Fallback to default credentials (e.g. if running in GCP or with GOOGLE_APPLICATION_CREDENTIALS)
+        
+        if service_account_path and os.path.exists(service_account_path):
             try:
-                firebase_admin.initialize_app()
+                cred = credentials.Certificate(service_account_path)
+                firebase_admin.initialize_app(cred)
+                return
             except Exception as e:
-                print(f"Firebase default initialization failed: {e}")
+                print(f"Error initializing Firebase with path {service_account_path}: {e}")
+
+        # Fallback to default credentials
+        try:
+            firebase_admin.initialize_app()
+        except Exception as e:
+            # Only raise if no apps were initialized at all
+            if not firebase_admin._apps:
+                print(f"Firebase initialization failed: {e}")
 
 def verify_firebase_token(id_token):
     initialize_firebase()

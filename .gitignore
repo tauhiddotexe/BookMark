@@ -17,7 +17,10 @@ graphify-out/*
 !graphify-out/graph.html
 !graphify-out/GRAPH_REPORT.md
 
-# Firebase
+# Firebase & Secrets
 firebase-admin-sdk.json
 backend/*.json
 *.json.local
+.env.local
+frontend/.env.local
+**/*firebase-adminsdk*.json
