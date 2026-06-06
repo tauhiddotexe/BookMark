@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { BookSearchCard } from "@/components/book-search-card";
 import { Loading } from "@/components/loading";
 import { discoverBooks, searchBooks } from "@/lib/api";
+import { useDebounce } from "@/lib/hooks";
 import { SearchBookResult } from "@/lib/types";
 
 export function SearchPage() {
@@ -15,19 +16,26 @@ export function SearchPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState(q);
 
+  const debouncedQuery = useDebounce(query, 400);
+
   useEffect(() => {
-    document.title = q ? `Search: ${q} — Bookmark` : "Discover — Bookmark";
-    let cancelled = false;
+    document.title = debouncedQuery ? `Search: ${debouncedQuery} — Bookmark` : "Discover — Bookmark";
+    const controller = new AbortController();
 
     setLoading(true);
-    const fetcher = q ? searchBooks(q) : discoverBooks();
+    const fetcher = debouncedQuery 
+      ? searchBooks(debouncedQuery, { signal: controller.signal }) 
+      : discoverBooks({ signal: controller.signal });
+      
     fetcher
-      .then((data) => { if (!cancelled) setResults(data.results); })
-      .catch(() => { if (!cancelled) setResults([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((data) => { setResults(data.results); })
+      .catch((err) => { 
+        if (err.name !== "AbortError") setResults([]); 
+      })
+      .finally(() => { setLoading(false); });
 
-    return () => { cancelled = true; };
-  }, [q]);
+    return () => controller.abort();
+  }, [debouncedQuery]);
 
   function onSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

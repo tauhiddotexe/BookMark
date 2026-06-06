@@ -1,10 +1,22 @@
 import { SVGProps } from "react";
 
-type IconProps = SVGProps<SVGSVGElement>;
+type IconProps = SVGProps<SVGSVGElement> & { size?: number | string };
 
-function IconBase(props: IconProps) {
+function IconBase({ size, ...props }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="icon" aria-hidden="true" {...props} />
+    <svg 
+      width={size} 
+      height={size} 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="1.8" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      className="icon" 
+      aria-hidden="true" 
+      {...props} 
+    />
   );
 }
 

@@ -7,11 +7,17 @@ import { ReviewCard } from "@/components/review-card";
 import { ProfileStats } from "@/components/profile-stats";
 import { Loading } from "@/components/loading";
 import { formatCompactNumber } from "@/lib/format";
-import { getProfile, followUser, unfollowUser, getAccessToken } from "@/lib/api";
+import { getProfile, followUser, unfollowUser } from "@/lib/api";
 import { ProfileDetail } from "@/lib/types";
 import { useToast } from "@/components/toast-provider";
+import { useAuth } from "@/context/auth-context";
 
 const labels: Record<string, string> = { read: "Read", reading: "Reading", want_to_read: "Want to Read" };
+
+/** Validate profile slug: alphanumeric, underscores, dots, hyphens only */
+function isValidProfileSlug(slug: string): boolean {
+  return /^[a-zA-Z0-9_.-]{1,150}$/.test(slug);
+}
 
 export function ProfilePage() {
   const { username } = useParams<{ username: string }>();
@@ -20,40 +26,59 @@ export function ProfilePage() {
   const [error, setError] = useState("");
   const [following, setFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
-  const { addToast } = useToast();
-  const token = getAccessToken();
+  const { pushToast } = useToast();
+  const { getToken, localUser } = useAuth();
 
   useEffect(() => {
     if (!username) return;
-    let cancelled = false;
+
+    // Defensive slug validation — reject before API call
+    if (!isValidProfileSlug(username)) {
+      console.warn(`[Profile] Invalid profile slug rejected: "${username}". Not sending API request.`);
+      setError("Invalid profile URL.");
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
 
     setLoading(true);
     setError("");
-    getProfile(username, token || undefined)
-      .then((data) => {
-        if (cancelled) return;
-        setProfile(data);
-        setFollowing(data.is_following);
-        document.title = `@${data.username} — Bookmark`;
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load profile.");
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    
+    console.debug(`[Profile] Loading profile for slug: "${username}"`);
+    
+    getToken().then(token => {
+      if (controller.signal.aborted) return;
+      getProfile(username, token || undefined, { signal: controller.signal })
+        .then((data) => {
+          setProfile(data);
+          setFollowing(data.is_following);
+          document.title = `@${data.username} — Bookmark`;
+          console.debug(`[Profile] Successfully loaded profile: "${data.username}"`);
+        })
+        .catch((err) => {
+          if (err.name !== "AbortError") {
+            console.warn(`[Profile] Failed to load profile "${username}":`, err.message);
+            setError(err instanceof Error ? err.message : "Could not load profile.");
+          }
+        })
+        .finally(() => { setLoading(false); });
+    });
 
-    return () => { cancelled = true; };
-  }, [username]);
+    return () => controller.abort();
+  }, [username, getToken]);
 
   if (loading) return <Loading />;
   if (error || !profile) return <p className="muted">{error || "Profile not found."}</p>;
 
-  const coverWall = Object.values(profile.shelves).flat().slice(0, 12);
-  const booksRead = profile.shelves.read?.length || 0;
+  const coverWall = Object.values(profile.shelves || {}).flat().slice(0, 12);
+  const booksRead = profile.shelves?.read?.length || 0;
   const averageRating =
-    profile.reviews.length > 0
+    profile.reviews?.length > 0
       ? (profile.reviews.reduce((total, review) => total + Number(review.rating), 0) / profile.reviews.length).toFixed(1)
       : "0.0";
   const avatar = profile.profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.username)}&background=16231c&color=f7f7f2&size=240`;
+  const joinDate = profile.date_joined ? new Date(profile.date_joined).toLocaleDateString(undefined, { year: 'numeric', month: 'long' }) : null;
 
   return (
     <div className="stack">
@@ -65,24 +90,26 @@ export function ProfilePage() {
               <span className="pill">@{profile.username}</span>
               <span className="chip">{formatCompactNumber(profile.followers_count + (following && !profile.is_following ? 1 : (!following && profile.is_following ? -1 : 0)))} followers</span>
               <span className="chip">{formatCompactNumber(profile.following_count)} following</span>
-              {token && profile.username !== localStorage.getItem("bookmark_username") && (
+              {joinDate && <span className="chip">Joined {joinDate}</span>}
+              {localUser && profile.username !== localUser.username && (
                 <button 
                   className={`btn ${following ? "btn-secondary" : "btn-primary"} btn-sm`}
                   onClick={async () => {
+                    const token = await getToken();
                     if (!token) return;
                     setFollowLoading(true);
                     try {
                       if (following) {
                         await unfollowUser(profile.username, token);
                         setFollowing(false);
-                        addToast("Unfollowed user", "info");
+                        pushToast("Unfollowed user");
                       } else {
                         await followUser(profile.username, token);
                         setFollowing(true);
-                        addToast("Following user", "success");
+                        pushToast("Following user", "success");
                       }
                     } catch (err) {
-                      addToast("Failed to update follow status", "error");
+                      pushToast("Failed to update follow status", "error");
                     } finally {
                       setFollowLoading(false);
                     }
@@ -112,18 +139,22 @@ export function ProfilePage() {
           <span className="muted">Average rating</span>
         </article>
         <article className="card profile-stat-card">
-          <strong>{profile.reviews.length}</strong>
+          <strong>{profile.reviews?.length || 0}</strong>
           <span className="muted">Reviews written</span>
         </article>
         <article className="card profile-stat-card">
-          <strong>{profile.lists.length}</strong>
+          <strong>{profile.diary_entries?.length || 0}</strong>
+          <span className="muted">Diary entries</span>
+        </article>
+        <article className="card profile-stat-card">
+          <strong>{profile.lists?.length || 0}</strong>
           <span className="muted">Public lists</span>
         </article>
       </section>
 
-      <ProfileStats reviews={profile.reviews} />
+      <ProfileStats reviews={profile.reviews || []} />
 
-      {coverWall.length ? (
+      {coverWall.length > 0 ? (
         <section className="card rail-card">
           <div className="section-head">
             <h2>Cover Wall</h2>
@@ -138,13 +169,13 @@ export function ProfilePage() {
         </section>
       ) : null}
 
-      <ProfileBooks shelves={profile.shelves} labels={labels} />
+      <ProfileBooks shelves={profile.shelves || {}} labels={labels} />
 
       <div className="section-head">
         <h2>Recent Reviews</h2>
       </div>
       <section className="feed">
-        {profile.reviews.length ? profile.reviews.map((review) => <ReviewCard key={review.id} review={review} />) : <p className="muted">No reviews yet. Search for a book and post the first one.</p>}
+        {profile.reviews?.length ? profile.reviews.map((review) => <ReviewCard key={review.id} review={review} />) : <p className="muted">No reviews yet. Search for a book and post the first one.</p>}
       </section>
     </div>
   );

@@ -5,7 +5,7 @@ import { BookCover } from "@/components/book-cover";
 import { CommentIcon, HeartIcon } from "@/components/icons";
 import { toggleReviewLike } from "@/lib/api";
 import { formatCompactNumber, formatDate, formatStars } from "@/lib/format";
-import { getAccessToken } from "@/lib/session";
+import { useAuth } from "@/context/auth-context";
 import { Review } from "@/lib/types";
 
 const LIKED_STORAGE_KEY = "bookmark_liked_reviews";
@@ -26,6 +26,7 @@ function writeLikedReviewIds(ids: Set<number>) {
 
 export function ReviewCard({ review, compact = false }: { review: Review; compact?: boolean }) {
   const avatar = review.user.profile?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(review.user.username)}&background=16231c&color=f7f7f2`;
+  const { getToken } = useAuth();
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(review.likes_count);
   const [pending, setPending] = useState(false);
@@ -41,7 +42,7 @@ export function ReviewCard({ review, compact = false }: { review: Review; compac
 
   async function toggleLike() {
     if (pending) return;
-    const access = getAccessToken();
+    const access = await getToken();
     if (!access) {
       setFeedback("Log in to like reviews.");
       return;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getBookState, setBookShelf } from "@/lib/api";
-import { getAccessToken } from "@/lib/session";
+import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/components/toast-provider";
 import { DiaryLogModal } from "./diary-log-modal";
 import { BookIcon, CalendarIcon } from "./icons";
@@ -15,30 +15,36 @@ const OPTIONS = [
 
 export function BookLogPanel({ slug, bookId, bookTitle }: { slug: string; bookId: number; bookTitle: string }) {
   const { pushToast } = useToast();
+  const { getToken, user } = useAuth();
   const [selected, setSelected] = useState("");
   const [reviewed, setReviewed] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
-  const [bookId, setBookId] = useState<number | null>(null);
 
   useEffect(() => {
-    const access = getAccessToken();
-    if (!access) return;
-    getBookState(slug, access)
-      .then((state) => {
-        setSelected(state.shelves[0] || "");
-        setReviewed(Boolean(state.review));
-        // We'll need the book ID for the diary entry. 
-        // If it's not in state, we might need to fetch the full book object or pass it as a prop.
-        // For now, let's assume we'll get it from the book page or another way.
-      })
-      .catch(() => undefined);
-  }, [slug]);
+    if (!user) return;
+    const controller = new AbortController();
+    
+    let cancelled = false;
+    getToken().then((token) => {
+      if (cancelled || !token) return;
+      getBookState(slug, token, { signal: controller.signal })
+        .then((state) => {
+          setSelected(state.shelves[0] || "");
+          setReviewed(Boolean(state.review));
+        })
+        .catch((err) => {
+          if (err.name !== "AbortError") console.error("[BookLogPanel] Failed to load book state:", err);
+        });
+    });
+      
+    return () => { cancelled = true; controller.abort(); };
+  }, [slug, user, getToken]);
 
   async function saveShelf(nextShelf: string) {
-    const access = getAccessToken();
-    if (!access) {
+    const token = await getToken();
+    if (!token) {
       setError("Log in to track books.");
       pushToast("Log in to track books.", "error");
       return;
@@ -46,7 +52,7 @@ export function BookLogPanel({ slug, bookId, bookTitle }: { slug: string; bookId
     setPending(true);
     setError("");
     try {
-      const state = await setBookShelf(slug, access, nextShelf);
+      const state = await setBookShelf(slug, token, nextShelf);
       setSelected(state.shelves[0] || "");
       pushToast(nextShelf ? "Shelf updated." : "Shelf cleared.");
     } catch {

@@ -1,14 +1,20 @@
 from decimal import Decimal
-
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AbstractUser
+from django_mongodb_backend.fields import ObjectIdAutoField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Avg
-from django.utils.text import slugify
-
-
+from django.db.models import Avg, F
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.text import slugify
+
+class User(AbstractUser):
+    id = ObjectIdAutoField(primary_key=True)
+    firebase_uid = models.CharField(max_length=128, unique=True, null=True, blank=True, db_index=True)
+
+    class Meta:
+        swappable = 'AUTH_USER_MODEL'
+
 
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
@@ -23,6 +29,7 @@ class Profile(TimeStampedModel):
     display_name = models.CharField(max_length=150, blank=True)
     avatar_url = models.URLField(blank=True, max_length=500)
     bio = models.TextField(blank=True)
+    favorite_genres = models.JSONField(default=list, blank=True)
     
     # Denormalized for MongoDB performance
     followers_count = models.PositiveIntegerField(default=0)
@@ -34,14 +41,17 @@ class Profile(TimeStampedModel):
 
 
 class Book(TimeStampedModel):
-    google_books_id = models.CharField(max_length=120, unique=True)
-    title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=300, unique=True, blank=True)
+    google_books_id = models.CharField(max_length=120, unique=True, db_index=True)
+    openlibrary_id = models.CharField(max_length=120, blank=True, db_index=True)
+    isbn_13 = models.CharField(max_length=13, blank=True, db_index=True)
+    isbn_10 = models.CharField(max_length=10, blank=True, db_index=True)
+    title = models.CharField(max_length=255, db_index=True)
+    slug = models.SlugField(max_length=300, unique=True, blank=True, db_index=True)
     author = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
     published_date = models.CharField(max_length=32, blank=True)
     page_count = models.PositiveIntegerField(default=0)
-    categories = models.CharField(max_length=255, blank=True)
+    categories = models.CharField(max_length=255, blank=True, db_index=True)
     cover_url = models.URLField(blank=True, max_length=500)
     thumbnail_url = models.URLField(blank=True, max_length=500)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0)
@@ -77,6 +87,9 @@ class Follow(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["follower", "following"], name="unique_follow"),
+        ]
         indexes = [
             models.Index(fields=["follower", "following"]),
         ]
@@ -85,19 +98,21 @@ class Follow(TimeStampedModel):
         return f"{self.follower.username} -> {self.following.username}"
 
     def save(self, *args, **kwargs):
-        created = self.pk is None
+        created = self._state.adding
         super().save(*args, **kwargs)
         if created:
-            self.follower.profile.following_count += 1
-            self.follower.profile.save(update_fields=['following_count'])
-            self.following.profile.followers_count += 1
-            self.following.profile.save(update_fields=['followers_count'])
+            from .models import Profile
+            Profile.objects.filter(user=self.follower).update(following_count=F('following_count') + 1)
+            Profile.objects.filter(user=self.following).update(followers_count=F('followers_count') + 1)
 
     def delete(self, *args, **kwargs):
-        self.follower.profile.following_count = max(0, self.follower.profile.following_count - 1)
-        self.follower.profile.save(update_fields=['following_count'])
-        self.following.profile.followers_count = max(0, self.following.profile.followers_count - 1)
-        self.following.profile.save(update_fields=['followers_count'])
+        from .models import Profile
+        Profile.objects.filter(user=self.follower).update(
+            following_count=models.functions.Greatest(F('following_count') - 1, 0)
+        )
+        Profile.objects.filter(user=self.following).update(
+            followers_count=models.functions.Greatest(F('followers_count') - 1, 0)
+        )
         super().delete(*args, **kwargs)
 
 
@@ -124,17 +139,19 @@ class Review(TimeStampedModel):
         return f"{self.user.username} on {self.book.title}"
 
     def save(self, *args, **kwargs):
-        created = self.pk is None
+        created = self._state.adding
         if not self.book_title and self.book:
             self.book_title = self.book.title
         super().save(*args, **kwargs)
         if created:
-            self.user.profile.review_count += 1
-            self.user.profile.save(update_fields=['review_count'])
+            from .models import Profile
+            Profile.objects.filter(user=self.user).update(review_count=F('review_count') + 1)
 
     def delete(self, *args, **kwargs):
-        self.user.profile.review_count = max(0, self.user.profile.review_count - 1)
-        self.user.profile.save(update_fields=['review_count'])
+        from .models import Profile
+        Profile.objects.filter(user=self.user).update(
+            review_count=models.functions.Greatest(F('review_count') - 1, 0)
+        )
         super().delete(*args, **kwargs)
 
 
@@ -150,15 +167,15 @@ class Comment(TimeStampedModel):
         return f"{self.user.username} on review {self.review_id}"
 
     def save(self, *args, **kwargs):
-        created = self.pk is None
+        created = self._state.adding
         super().save(*args, **kwargs)
         if created:
-            self.review.comments_count += 1
-            self.review.save(update_fields=['comments_count'])
+            Review.objects.filter(pk=self.review_id).update(comments_count=F('comments_count') + 1)
 
     def delete(self, *args, **kwargs):
-        self.review.comments_count = max(0, self.review.comments_count - 1)
-        self.review.save(update_fields=['comments_count'])
+        Review.objects.filter(pk=self.review_id).update(
+            comments_count=models.functions.Greatest(F('comments_count') - 1, 0)
+        )
         super().delete(*args, **kwargs)
 
 
@@ -167,20 +184,23 @@ class ReviewLike(TimeStampedModel):
     review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name="likes")
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "review"], name="unique_review_like"),
+        ]
         indexes = [
             models.Index(fields=["user", "review"]),
         ]
 
     def save(self, *args, **kwargs):
-        created = self.pk is None
+        created = self._state.adding
         super().save(*args, **kwargs)
         if created:
-            self.review.likes_count += 1
-            self.review.save(update_fields=['likes_count'])
+            Review.objects.filter(pk=self.review_id).update(likes_count=F('likes_count') + 1)
 
     def delete(self, *args, **kwargs):
-        self.review.likes_count = max(0, self.review.likes_count - 1)
-        self.review.save(update_fields=['likes_count'])
+        Review.objects.filter(pk=self.review_id).update(
+            likes_count=models.functions.Greatest(F('likes_count') - 1, 0)
+        )
         super().delete(*args, **kwargs)
 
 
@@ -219,6 +239,9 @@ class ShelfEntry(TimeStampedModel):
     shelf = models.CharField(max_length=20, choices=Shelf.choices)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "book"], name="unique_shelf_entry"),
+        ]
         indexes = [
             models.Index(fields=["user", "book", "shelf"]),
         ]
@@ -262,13 +285,13 @@ class BookListLike(TimeStampedModel):
         is_new = self._state.adding
         super().save(*args, **kwargs)
         if is_new:
-            self.book_list.likes_count = self.book_list.likes.count()
-            self.book_list.save(update_fields=["likes_count"])
+            BookList.objects.filter(pk=self.book_list_id).update(likes_count=F('likes_count') + 1)
 
     def delete(self, *args, **kwargs):
+        BookList.objects.filter(pk=self.book_list_id).update(
+            likes_count=models.functions.Greatest(F('likes_count') - 1, 0)
+        )
         super().delete(*args, **kwargs)
-        self.book_list.likes_count = self.book_list.likes.count()
-        self.book_list.save(update_fields=["likes_count"])
 
 
 class DiaryEntry(TimeStampedModel):
@@ -347,8 +370,6 @@ class Activity(TimeStampedModel):
         return f"{self.user.username} - {self.activity_type} - {self.created_at}"
 
 # Signals for Activity Feed
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 @receiver(post_save, sender=DiaryEntry)
 def create_diary_activity(sender, instance, created, **kwargs):
@@ -409,9 +430,17 @@ def create_list_activity(sender, instance, created, **kwargs):
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
-        Profile.objects.get_or_create(user=instance, defaults={"display_name": instance.username})
+        try:
+            Profile.objects.get_or_create(user=instance, defaults={"display_name": instance.username})
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Signal failed to create profile for {instance.username}: {e}")
 
 @receiver(post_save, sender=User)
 def save_user_profile(sender, instance, **kwargs):
-    if hasattr(instance, 'profile'):
-        instance.profile.save()
+    try:
+        profile = getattr(instance, 'profile', None)
+        if profile and profile.pk:
+            profile.save()
+    except Exception:
+        pass  # Profile sync is handled by firebase_utils; signal is best-effort

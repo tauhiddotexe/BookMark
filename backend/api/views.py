@@ -1,7 +1,8 @@
 import logging
 
 import requests
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 from django.db.models import Case, IntegerField, Prefetch, Q, Value, When, F
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
@@ -30,7 +31,8 @@ from .serializers import (
     UserSerializer,
     ActivitySerializer,
 )
-from .services.google_books import discover_google_books, local_book_results, search_google_books, sync_google_book
+from .services import book_provider
+from .services import cache as cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,7 @@ def create_notification(*, recipient, actor, notification_type, review=None, com
 
 
 
-class MeView(generics.RetrieveAPIView):
+class MeView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -94,22 +96,20 @@ class MeView(generics.RetrieveAPIView):
 
 class FeedView(generics.ListAPIView):
     serializer_class = ReviewSerializer
-    def list(self, request, *args, **kwargs):
-        from django.core.cache import cache
-        user_id = request.user.id if request.user.is_authenticated else "anon"
-        page = request.query_params.get("page", 1)
-        cache_key = f"feed_user_{user_id}_page_{page}"
-        
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            return Response(cached_data)
-            
-        response = super().list(request, *args, **kwargs)
-        cache.set(cache_key, response.data, 60 * 5)
-        return response
-
     permission_classes = [permissions.AllowAny]
     pagination_class = StandardResultsSetPagination
+
+    def list(self, request, *args, **kwargs):
+        user_id = str(request.user.id) if request.user.is_authenticated else "anon"
+        page = request.query_params.get("page", 1)
+
+        cached_data = cache_service.get_feed(user_id, page)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        response = super().list(request, *args, **kwargs)
+        cache_service.set_feed(user_id, page, response.data)
+        return response
 
     def get_queryset(self):
         queryset = base_review_queryset()
@@ -157,17 +157,25 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
         query = request.query_params.get("q", "").strip()
         if not query:
             return Response({"results": []})
-        results = search_google_books(query)
+        try:
+            results = book_provider.search_books(query)
+        except Exception:
+            logger.exception("Provider search failed, falling back to local DB")
+            results = []
         if not results:
-            results = local_book_results(query=query, limit=12)
+            results = book_provider.local_book_results(query=query, limit=12)
         return Response({"results": BookSearchResultSerializer(self._attach_existing_books(results), many=True).data})
 
     @method_decorator(cache_page(60 * 15))
     @action(detail=False, methods=["get"])
     def discover(self, request):
-        results = discover_google_books()
+        try:
+            results = book_provider.discover_books()
+        except Exception:
+            logger.exception("Provider discover failed, falling back to local DB")
+            results = []
         if not results:
-            results = local_book_results(limit=18)
+            results = book_provider.local_book_results(limit=18)
         return Response({"results": BookSearchResultSerializer(self._attach_existing_books(results), many=True).data})
 
     @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated])
@@ -184,7 +192,7 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
         if not volume_id:
             return Response({"detail": "volume_id is required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            book = sync_google_book(volume_id)
+            book = book_provider.import_book(volume_id)
             logger.info("Import book success", extra={"user_id": request.user.id, "book_id": book.id, "slug": book.slug})
         except requests.RequestException:
             logger.exception("Import book failed due to Google Books request error")
@@ -325,10 +333,26 @@ class ProfileView(generics.RetrieveAPIView):
     serializer_class = ProfileSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = "username"
-    queryset = (
-        User.objects.select_related("profile")
-        .prefetch_related("shelf_entries__book", "book_lists__items__book")
-    )
+    
+    def get_queryset(self):
+        return (
+            User.objects.select_related("profile")
+            .prefetch_related(
+                Prefetch(
+                    "reviews",
+                    queryset=Review.objects.select_related("user", "user__profile", "book")
+                    .prefetch_related(latest_comments_prefetch())
+                    .order_by("-created_at")
+                ),
+                Prefetch(
+                    "diary_entries",
+                    queryset=DiaryEntry.objects.select_related("book").order_by("-read_date")
+                ),
+                "shelf_entries__book",
+                "book_lists__items__book",
+                "book_lists__user__profile"
+            )
+        )
 
 
 class FollowUserView(APIView):
@@ -425,29 +449,36 @@ class BookListViewSet(viewsets.ModelViewSet):
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
-@cache_page(60 * 15)
 def stats_view(_request):
-    return Response(
-        {
-            "users": User.objects.count(),
-            "books": Book.objects.count(),
-            "reviews": Review.objects.count(),
-            "comments": Comment.objects.count(),
-            "follows": Follow.objects.count(),
-            "notifications": Notification.objects.count(),
-            "lists": BookList.objects.count(),
-            "top_reviewers": list(
-                User.objects.order_by("-profile__review_count", "username")
-                .values("username", review_count=F("profile__review_count"))[:5]
-            ),
-        }
-    )
+    cached = cache_service.get_stats()
+    if cached is not None:
+        return Response(cached)
+
+    data = {
+        "users": User.objects.count(),
+        "books": Book.objects.count(),
+        "reviews": Review.objects.count(),
+        "comments": Comment.objects.count(),
+        "follows": Follow.objects.count(),
+        "notifications": Notification.objects.count(),
+        "lists": BookList.objects.count(),
+        "top_reviewers": list(
+            User.objects.order_by("-profile__review_count", "username")
+            .values("username", review_count=F("profile__review_count"))[:5]
+        ),
+    }
+    cache_service.set_stats(data)
+    return Response(data)
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
 @throttle_classes([])
 def health_check(_request):
-    return Response({"status": "healthy"})
+    redis_ok = cache_service.redis_health()
+    return Response({
+        "status": "healthy",
+        "cache": "redis" if redis_ok else "fallback",
+    })
 class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ActivitySerializer
     permission_classes = [permissions.AllowAny]

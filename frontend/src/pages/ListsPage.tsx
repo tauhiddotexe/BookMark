@@ -11,14 +11,16 @@ export function ListsPage() {
 
   useEffect(() => {
     document.title = "Lists — Bookmark";
-    let cancelled = false;
+    const controller = new AbortController();
 
-    getLists()
-      .then((data) => { if (!cancelled) setLists(data.results); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+    getLists(undefined, { signal: controller.signal })
+      .then((data) => { setLists(data.results); })
+      .catch((err) => {
+        if (err.name !== "AbortError") console.error(err);
+      })
+      .finally(() => { setLoading(false); });
 
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, []);
 
   if (loading) return <Loading />;

@@ -1,5 +1,5 @@
 import { Activity } from "@/lib/types";
-import { formatStars } from "@/lib/utils";
+import { formatStars } from "@/lib/format";
 import { Link } from "react-router-dom";
 import { CalendarIcon, StarIcon } from "@/components/icons";
 
@@ -35,7 +35,7 @@ function ActivityItem({ activity }: { activity: Activity }) {
 
       <div className="activity-body">
         <div className="activity-content">
-          <Link to={`/profiles/${activity.user_name}`} className="activity-user-link">
+          <Link to={`/profile/${activity.user_name}`} className="activity-user-link">
             {activity.display_name || activity.user_name}
           </Link>
           
@@ -53,7 +53,7 @@ function ActivityItem({ activity }: { activity: Activity }) {
           )}
 
           {activity.activity_type === "follow" && activity.target_user_name && (
-            <Link to={`/profiles/${activity.target_user_name}`} className="activity-target-link">
+            <Link to={`/profile/${activity.target_user_name}`} className="activity-target-link">
               {activity.target_user_name}
             </Link>
           )}

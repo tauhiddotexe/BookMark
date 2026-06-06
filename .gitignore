@@ -24,3 +24,12 @@ backend/*.json
 .env.local
 frontend/.env.local
 **/*firebase-adminsdk*.json
+
+# Scratch and database volume directories
+scratch/
+db-data/
+
+# Frontend build artifacts
+dist/
+frontend/dist/
+build/

@@ -1,4 +1,5 @@
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 from django.db.models import Count, Prefetch
 from rest_framework import serializers
 
@@ -19,29 +20,39 @@ def latest_comments_prefetch():
 class ProfileMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
-        fields = ["display_name", "avatar_url", "bio"]
+        fields = ["display_name", "avatar_url", "bio", "favorite_genres"]
 
 
 class UserSerializer(serializers.ModelSerializer):
-    profile = ProfileMiniSerializer(read_only=True)
+    profile = ProfileMiniSerializer()
     followers_count = serializers.SerializerMethodField()
     following_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "profile", "followers_count", "following_count"]
+        fields = ["id", "username", "email", "profile", "followers_count", "following_count", "date_joined"]
+        read_only_fields = ["id", "username", "email", "followers_count", "following_count", "date_joined"]
 
     def get_followers_count(self, obj):
         try:
             return obj.profile.followers_count
-        except:
+        except (Profile.DoesNotExist, AttributeError):
             return obj.follower_links.count()
 
     def get_following_count(self, obj):
         try:
             return obj.profile.following_count
-        except:
+        except (Profile.DoesNotExist, AttributeError):
             return obj.following_links.count()
+            
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop('profile', None)
+        if profile_data:
+            profile = instance.profile
+            for attr, value in profile_data.items():
+                setattr(profile, attr, value)
+            profile.save()
+        return super().update(instance, validated_data)
 
 
 class BookSerializer(serializers.ModelSerializer):
@@ -61,6 +72,9 @@ class BookSerializer(serializers.ModelSerializer):
             "thumbnail_url",
             "average_rating",
             "ratings_count",
+            "openlibrary_id",
+            "isbn_13",
+            "isbn_10",
         ]
 
 
@@ -263,7 +277,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     reviews = serializers.SerializerMethodField()
     lists = BookListSerializer(many=True, source="book_lists", read_only=True)
     shelves = serializers.SerializerMethodField()
-    diary_entries = DiaryEntrySerializer(many=True, read_only=True)
+    diary_entries = serializers.SerializerMethodField()
     followers_count = serializers.SerializerMethodField()
     following_count = serializers.SerializerMethodField()
     is_following = serializers.SerializerMethodField()
@@ -284,23 +298,26 @@ class ProfileSerializer(serializers.ModelSerializer):
         ]
 
     def get_reviews(self, obj):
-        reviews = (
-            obj.reviews.select_related("user", "user__profile", "book")
-            .prefetch_related(latest_comments_prefetch())
-            .order_by("-created_at")[:10]
-        )
+        if hasattr(obj, "_prefetched_objects_cache") and "reviews" in obj._prefetched_objects_cache:
+            reviews = list(obj.reviews.all())[:10]
+        else:
+            reviews = (
+                obj.reviews.select_related("user", "user__profile", "book")
+                .prefetch_related(latest_comments_prefetch())
+                .order_by("-created_at")[:10]
+            )
         return ReviewSerializer(reviews, many=True).data
 
     def get_followers_count(self, obj):
         try:
             return obj.profile.followers_count
-        except:
+        except (Profile.DoesNotExist, AttributeError):
             return obj.follower_links.count()
 
     def get_following_count(self, obj):
         try:
             return obj.profile.following_count
-        except:
+        except (Profile.DoesNotExist, AttributeError):
             return obj.following_links.count()
 
     def get_is_following(self, obj):
@@ -311,9 +328,17 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def get_shelves(self, obj):
         grouped = {choice: [] for choice, _ in ShelfEntry.Shelf.choices}
-        for entry in obj.shelf_entries.select_related("book").all():
+        entries = obj.shelf_entries.all()
+        for entry in entries:
             grouped[entry.shelf].append(BookSerializer(entry.book).data)
         return grouped
+
+    def get_diary_entries(self, obj):
+        if hasattr(obj, "_prefetched_objects_cache") and "diary_entries" in obj._prefetched_objects_cache:
+            entries = list(obj.diary_entries.all())[:10]
+        else:
+            entries = obj.diary_entries.select_related("book").order_by("-read_date")[:10]
+        return DiaryEntrySerializer(entries, many=True, context=self.context).data
 
 
 class BookSearchResultSerializer(serializers.Serializer):
@@ -327,6 +352,9 @@ class BookSearchResultSerializer(serializers.Serializer):
     cover_url = serializers.CharField(allow_blank=True)
     thumbnail_url = serializers.CharField(allow_blank=True)
     existing_slug = serializers.CharField(allow_blank=True, required=False)
+    openlibrary_id = serializers.CharField(allow_blank=True, required=False)
+    isbn_13 = serializers.CharField(allow_blank=True, required=False)
+    isbn_10 = serializers.CharField(allow_blank=True, required=False)
 class ActivitySerializer(serializers.ModelSerializer):
     user_name = serializers.ReadOnlyField(source="user.username")
     display_name = serializers.ReadOnlyField(source="user.profile.display_name")

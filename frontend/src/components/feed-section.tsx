@@ -2,7 +2,7 @@ import { startTransition, useEffect, useState } from "react";
 
 import { ReviewCard } from "@/components/review-card";
 import { getFeed } from "@/lib/api";
-import { getAccessToken } from "@/lib/session";
+import { useAuth } from "@/context/auth-context";
 import { FeedResponse, Review } from "@/lib/types";
 
 type FeedSectionProps = {
@@ -14,35 +14,41 @@ export function FeedSection({ initialFeed }: FeedSectionProps) {
   const [nextPage, setNextPage] = useState<number | null>(extractNextPage(initialFeed.next));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { getToken } = useAuth();
 
   useEffect(() => {
-    const access = getAccessToken();
-    if (!access) return;
+    let cancelled = false;
 
-    startTransition(() => {
-      setLoading(true);
-      getFeed(1, access)
-        .then((feed) => {
-          setReviews(feed.results);
-          setNextPage(extractNextPage(feed.next));
-          setError("");
-        })
-        .catch((requestError) => {
-          setError(requestError instanceof Error ? requestError.message : "Could not refresh your feed.");
-        })
-        .finally(() => {
-          setLoading(false);
-        });
+    getToken().then((token) => {
+      if (cancelled || !token) return;
+
+      startTransition(() => {
+        setLoading(true);
+        getFeed(1, token)
+          .then((feed) => {
+            setReviews(feed.results);
+            setNextPage(extractNextPage(feed.next));
+            setError("");
+          })
+          .catch((requestError) => {
+            setError(requestError instanceof Error ? requestError.message : "Could not refresh your feed.");
+          })
+          .finally(() => {
+            setLoading(false);
+          });
+      });
     });
-  }, []);
+
+    return () => { cancelled = true; };
+  }, [getToken]);
 
   async function loadMore() {
     if (!nextPage || loading) return;
     setLoading(true);
     setError("");
     try {
-      const access = getAccessToken();
-      const feed = await getFeed(nextPage, access || undefined);
+      const token = await getToken();
+      const feed = await getFeed(nextPage, token || undefined);
       setReviews((current) => [...current, ...feed.results]);
       setNextPage(extractNextPage(feed.next));
     } catch (requestError) {

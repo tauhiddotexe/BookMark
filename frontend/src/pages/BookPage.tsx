@@ -22,22 +22,21 @@ export function BookPage() {
 
   useEffect(() => {
     if (!slug) return;
-    let cancelled = false;
+    const controller = new AbortController();
 
     setLoading(true);
     setError("");
-    getBook(slug)
+    getBook(slug, { signal: controller.signal })
       .then((data) => {
-        if (cancelled) return;
         setBook(data);
         document.title = `${data.title} — Bookmark`;
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load book.");
+        if (err.name !== "AbortError") setError(err instanceof Error ? err.message : "Could not load book.");
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { setLoading(false); });
 
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [slug]);
 
   if (loading) return <Loading />;
@@ -80,7 +79,7 @@ export function BookPage() {
           <>
             <ReviewComposer bookId={book.id} />
             <section className="feed">
-              {book.reviews.length ? book.reviews.map((review) => <ReviewCard key={review.id} review={review} />) : <p className="muted">No reviews yet. Be the first to rate and review this book.</p>}
+              {book.reviews?.length ? book.reviews.map((review) => <ReviewCard key={review.id} review={review} />) : <p className="muted">No reviews yet. Be the first to rate and review this book.</p>}
             </section>
           </>
         ) : (

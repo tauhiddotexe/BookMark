@@ -8,7 +8,6 @@ import {
 } from "firebase/auth";
 import { auth, googleProvider, appleProvider } from "@/lib/firebase";
 import { useToast } from "@/components/toast-provider";
-import { syncUser } from "@/lib/api";
 
 type AuthFormProps = {
   mode: "login" | "signup";
@@ -31,17 +30,17 @@ export function AuthForm({ mode }: AuthFormProps) {
     const username = formData.get("username") as string;
 
     try {
+      let user;
       if (mode === "signup") {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         // Set the username in Firebase profile
         await updateProfile(userCredential.user, { displayName: username });
+        user = userCredential.user;
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        user = userCredential.user;
       }
 
-      // Sync with backend to ensure user exists in MongoDB
-      await syncUser();
-      
       pushToast(mode === "login" ? "Welcome back to Bookmark." : "Welcome to Bookmark.");
       navigate("/");
     } catch (err: any) {
@@ -58,7 +57,6 @@ export function AuthForm({ mode }: AuthFormProps) {
     setError("");
     try {
       await signInWithPopup(auth, provider);
-      await syncUser();
       pushToast("Signed in successfully.");
       navigate("/");
     } catch (err: any) {

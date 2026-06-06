@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { StarPicker } from "./star-picker";
 import { logDiaryEntry } from "@/lib/api";
-import { getAccessToken } from "@/lib/session";
+import { useAuth } from "@/context/auth-context";
 import { useToast } from "./toast-provider";
 import { CalendarIcon, XIcon, SaveIcon, AlertIcon } from "./icons";
 
@@ -14,6 +14,7 @@ interface DiaryLogModalProps {
 
 export function DiaryLogModal({ bookId, bookTitle, onClose, onSuccess }: DiaryLogModalProps) {
   const { pushToast } = useToast();
+  const { getToken } = useAuth();
   const [rating, setRating] = useState(0);
   const [readDate, setReadDate] = useState(new Date().toISOString().split("T")[0]);
   const [reviewText, setReviewText] = useState("");
@@ -23,8 +24,11 @@ export function DiaryLogModal({ bookId, bookTitle, onClose, onSuccess }: DiaryLo
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const token = getAccessToken();
-    if (!token) return;
+    const token = await getToken();
+    if (!token) {
+      pushToast("Log in to track books.", "error");
+      return;
+    }
 
     setPending(true);
     try {
@@ -75,7 +79,7 @@ export function DiaryLogModal({ bookId, bookTitle, onClose, onSuccess }: DiaryLo
 
             <div className="input-group">
               <label className="input-label">Rating</label>
-              <StarPicker value={rating} onChange={setRating} />
+              <StarPicker value={rating} onChange={(val) => setRating(Number(val))} />
             </div>
           </div>
 

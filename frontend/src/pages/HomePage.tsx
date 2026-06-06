@@ -25,20 +25,28 @@ export function HomePage() {
 
   useEffect(() => {
     document.title = "Bookmark — Your life in books";
-    let cancelled = false;
+    const controller = new AbortController();
+    const { signal } = controller;
 
-    Promise.allSettled([getActivities(feedMode), getStats(), getLists(), discoverBooks()])
+    setLoading(true);
+    setFeedError(false);
+    
+    Promise.allSettled([
+      getActivities(feedMode, 1, { signal }), 
+      getStats({ signal }), 
+      getLists(undefined, { signal }), 
+      discoverBooks({ signal })
+    ])
       .then(([actRes, statsRes, listsRes, discoverRes]) => {
-        if (cancelled) return;
         if (actRes.status === "fulfilled") setActivities(actRes.value);
         else setFeedError(true);
         if (statsRes.status === "fulfilled") setStats(statsRes.value);
         if (listsRes.status === "fulfilled") setLists(listsRes.value.results);
         if (discoverRes.status === "fulfilled") setDiscovered(discoverRes.value.results);
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { setLoading(false); });
 
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [feedMode]);
 
   if (loading) return <Loading />;

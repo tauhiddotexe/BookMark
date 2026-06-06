@@ -2,7 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 
 import { importGoogleBook } from "@/lib/api";
-import { getAccessToken } from "@/lib/session";
+import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/components/toast-provider";
 
 export function BookActionButton({
@@ -14,6 +14,7 @@ export function BookActionButton({
 }) {
   const navigate = useNavigate();
   const { pushToast } = useToast();
+  const { getToken } = useAuth();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,7 +25,7 @@ export function BookActionButton({
   async function importBook() {
     setPending(true);
     setError("");
-    const access = getAccessToken();
+    const access = await getToken();
     if (!access) {
       setError("Log in first to import books.");
       pushToast("Log in first to import books.", "error");

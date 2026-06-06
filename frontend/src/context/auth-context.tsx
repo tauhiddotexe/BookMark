@@ -1,13 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { User, onAuthStateChanged, getIdToken } from "firebase/auth";
+import { User, onIdTokenChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { syncUser } from "@/lib/api";
+import { syncUser, clearApiCache, abortAllRequests, setAuthTransitioning, setSyncingUser, getAccessToken, setAuthHydrated } from "@/lib/api";
 import { User as LocalUser } from "@/lib/types";
 
 interface AuthContextType {
   user: User | null;
   localUser: LocalUser | null;
   loading: boolean;
+  error: Error | null;
   getToken: () => Promise<string | null>;
   logout: () => Promise<void>;
 }
@@ -18,42 +19,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [localUser, setLocalUser] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
+    let controller: AbortController | null = null;
+    let lastUid: string | null = null;
+
+    const unsubscribe = onIdTokenChanged(auth, async (currentUser) => {
+      const uidChanged = currentUser?.uid !== lastUid;
+      lastUid = currentUser ? currentUser.uid : null;
+
+      if (uidChanged) {
+        console.debug("[Auth] User UID changed. Aborting requests and resetting API cache/gate...");
+        setAuthHydrated(false); // Reset gating so requests are queued until sync completes
+        abortAllRequests();
+        clearApiCache();
+      }
+
+      setUser(currentUser);
+      setError(null);
       
-      if (user) {
-        const token = await user.getIdToken();
-        localStorage.setItem("token", token);
-        try {
-          const synced = await syncUser();
-          setLocalUser(synced);
-        } catch (err) {
-          console.error("Failed to sync user with backend", err);
+      if (controller) controller.abort();
+      
+      if (currentUser) {
+        if (uidChanged) {
+          controller = new AbortController();
+          setSyncingUser(true);
+          try {
+            console.debug("[Auth] Syncing user profile with Django backend...");
+            const synced = await syncUser(undefined, { signal: controller.signal });
+            setLocalUser(synced);
+          } catch (err: any) {
+            if (err.name !== "AbortError") {
+              console.error("Failed to sync user with backend", err);
+              setError(err instanceof Error ? err : new Error("Failed to sync user"));
+            }
+          } finally {
+            setSyncingUser(false);
+            setAuthHydrated(true); // Release gating after profile sync finishes
+          }
+        } else {
+          setAuthHydrated(true); // Release gating if UID did not change (token-only change)
         }
       } else {
-        localStorage.removeItem("token");
         setLocalUser(null);
+        setAuthHydrated(true); // Release gating if no user is authenticated
       }
       
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (controller) controller.abort();
+      unsubscribe();
+    };
   }, []);
 
   const logout = async () => {
-    await auth.signOut();
+    setAuthTransitioning(true);
+    try {
+      console.debug("[Auth] Initiating logout sequence...");
+      abortAllRequests();
+      clearApiCache();
+      await auth.signOut();
+    } catch (e) {
+      console.error("[Auth] Sign out error:", e);
+    } finally {
+      setAuthTransitioning(false);
+    }
   };
 
   const getToken = async () => {
-    if (!auth.currentUser) return null;
-    return await getIdToken(auth.currentUser, true);
+    return await getAccessToken();
   };
 
   return (
-    <AuthContext.Provider value={{ user, localUser, loading, getToken, logout }}>
+    <AuthContext.Provider value={{ user, localUser, loading, error, getToken, logout }}>
       {children}
     </AuthContext.Provider>
   );

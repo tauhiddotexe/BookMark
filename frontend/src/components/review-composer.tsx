@@ -2,13 +2,14 @@ import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { StarPicker } from "@/components/star-picker";
-import { createReview, getCurrentUser } from "@/lib/api";
-import { getAccessToken } from "@/lib/session";
+import { createReview } from "@/lib/api";
+import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/components/toast-provider";
 
 export function ReviewComposer({ bookId }: { bookId: number }) {
   const navigate = useNavigate();
   const { pushToast } = useToast();
+  const { getToken } = useAuth();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [rating, setRating] = useState("4.5");
@@ -17,7 +18,7 @@ export function ReviewComposer({ bookId }: { bookId: number }) {
     event.preventDefault();
     setPending(true);
     setError("");
-    const access = getAccessToken();
+    const access = await getToken();
     if (!access) {
       setError("Log in first to post a review.");
       pushToast("Log in first to post a review.", "error");
@@ -35,21 +36,10 @@ export function ReviewComposer({ bookId }: { bookId: number }) {
     };
 
     try {
-      const me = await getCurrentUser(access);
-      console.debug("[Bookmark] Review request", {
-        endpoint: "/api/reviews/",
-        method: "POST",
-        hasAuthHeader: Boolean(access),
-        userId: me.id,
-        bookId: bookId,
-        rating: Number(rating),
-      });
-      await createReview(access, { ...payload, user_id: me.id, text: payload.review_text });
-      console.debug("[Bookmark] Review response", { status: "ok", bookId: bookId });
+      await createReview(access, { ...payload, text: payload.review_text });
       pushToast("Review posted.");
       window.location.reload();
     } catch (err) {
-      console.debug("[Bookmark] Review response", { status: "error", message: err instanceof Error ? err.message : "Could not save review." });
       pushToast(err instanceof Error ? err.message : "Could not save review.", "error");
       setError(err instanceof Error ? err.message : "Could not save review.");
     } finally {

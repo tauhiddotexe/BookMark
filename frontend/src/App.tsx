@@ -9,6 +9,7 @@ import { SearchPage } from "@/pages/SearchPage";
 import { ListsPage } from "@/pages/ListsPage";
 import { AuthPage } from "@/pages/AuthPage";
 import { useAuth } from "@/context/auth-context";
+import { ProtectedRoute } from "@/components/protected-route";
 
 export function App() {
   const { loading } = useAuth();
@@ -51,7 +52,9 @@ export function App() {
             <Route path="/books/:slug" element={<BookPage />} />
             <Route path="/profile/:username" element={<ProfilePage />} />
             <Route path="/search" element={<SearchPage />} />
-            <Route path="/lists" element={<ListsPage />} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/lists" element={<ListsPage />} />
+            </Route>
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
             <Route path="/signup" element={<Navigate to="/auth?mode=signup" replace />} />

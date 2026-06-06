@@ -34,8 +34,8 @@ echo "[3/4] Running MongoDB-safe migrations..."
 python manage.py mongodb_migrate 2>&1
 
 # Collect static files
-echo "[4/4] Collecting static files..."
-python manage.py collectstatic --noinput 2>&1 || echo "  collectstatic skipped"
+echo "[4/4] Collecting static files (skipped for dev/prod API mode)..."
+# python manage.py collectstatic --noinput 2>&1 || echo "  collectstatic skipped"
 
 echo "========================================="
 echo "  Starting Gunicorn server on :8000"
@@ -44,5 +44,8 @@ exec gunicorn config.wsgi:application \
     --bind 0.0.0.0:8000 \
     --workers 3 \
     --timeout 120 \
+    --max-requests 1000 \
+    --max-requests-jitter 100 \
+    --keep-alive 5 \
     --access-logfile - \
     --error-logfile -

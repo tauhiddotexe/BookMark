@@ -2,6 +2,9 @@ type CoverSource = {
   title: string;
   author?: string;
   google_books_id?: string;
+  openlibrary_id?: string;
+  isbn_13?: string;
+  isbn_10?: string;
   cover_url?: string;
   thumbnail_url?: string;
 };
@@ -29,9 +32,16 @@ export function getBookCoverCandidates(source: CoverSource) {
   const candidates = [
     normalizeGoogleImageUrl(source.cover_url || ""),
     normalizeGoogleImageUrl(source.thumbnail_url || ""),
-    source.google_books_id ? buildGoogleBooksCover(source.google_books_id, 1) : "",
-    source.google_books_id ? buildGoogleBooksCover(source.google_books_id, 2) : ""
   ];
+
+  if (source.isbn_13) candidates.push(`https://covers.openlibrary.org/b/isbn/${source.isbn_13}-L.jpg`);
+  if (source.isbn_10) candidates.push(`https://covers.openlibrary.org/b/isbn/${source.isbn_10}-L.jpg`);
+  if (source.openlibrary_id) candidates.push(`https://covers.openlibrary.org/b/olid/${source.openlibrary_id.replace("/works/", "")}-L.jpg`);
+  
+  if (source.google_books_id) {
+    candidates.push(buildGoogleBooksCover(source.google_books_id, 1));
+    candidates.push(buildGoogleBooksCover(source.google_books_id, 2));
+  }
 
   return [...new Set(candidates.filter(Boolean))];
 }

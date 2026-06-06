@@ -11,7 +11,11 @@ export function SiteHeader() {
   const [query, setQuery] = useState("");
   const { user, localUser, logout } = useAuth();
 
-  const username = localUser?.username || user?.displayName || "";
+  // CRITICAL: Only use the backend-synced username for profile routing.
+  // Firebase displayName can be anything ("Android Studio", full name, etc.)
+  // and must NEVER be used as a profile slug.
+  const username = localUser?.username || "";
+  const hasValidUsername = username.length > 0 && /^[a-zA-Z0-9_.-]+$/.test(username);
 
   function onSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,10 +56,17 @@ export function SiteHeader() {
             </Link>
             {user ? (
               <div className="nav-profile-group">
-                <Link to={`/profile/${username}`} className={pathname.startsWith("/profile") ? "nav-link is-active" : "nav-link"}>
-                  <UserIcon />
-                  {username || "Profile"}
-                </Link>
+                {hasValidUsername ? (
+                  <Link to={`/profile/${username}`} className={pathname.startsWith("/profile") ? "nav-link is-active" : "nav-link"}>
+                    <UserIcon />
+                    {username}
+                  </Link>
+                ) : (
+                  <span className="nav-link">
+                    <UserIcon />
+                    Profile
+                  </span>
+                )}
                 <button onClick={handleLogout} className="nav-logout-btn">
                   Logout
                 </button>
@@ -97,10 +108,17 @@ export function SiteHeader() {
           Lists
         </Link>
         {user ? (
-          <Link to={`/profile/${username}`} className={pathname.startsWith("/profile") ? "mobile-nav-link is-active" : "mobile-nav-link"}>
-            <UserIcon />
-            Profile
-          </Link>
+          hasValidUsername ? (
+            <Link to={`/profile/${username}`} className={pathname.startsWith("/profile") ? "mobile-nav-link is-active" : "mobile-nav-link"}>
+              <UserIcon />
+              Profile
+            </Link>
+          ) : (
+            <span className="mobile-nav-link">
+              <UserIcon />
+              Profile
+            </span>
+          )
         ) : (
           <Link to="/auth?mode=login" className="mobile-nav-link">
             <UserIcon />

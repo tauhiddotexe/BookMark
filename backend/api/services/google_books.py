@@ -1,11 +1,13 @@
 import hashlib
-
-import requests
+import logging
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
 
 from api.models import Book
+from api.services.http_client import safe_request_json
+
+logger = logging.getLogger("api.services.google_books")
 
 SEARCH_CACHE_TTL = 60 * 60
 DISCOVER_CACHE_TTL = 60 * 60
@@ -18,9 +20,7 @@ def _cache_key(prefix, suffix):
 
 
 def _request_json(url, *, params, timeout=8):
-    response = requests.get(url, params=params, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    return safe_request_json("GET", url, params=params, timeout=timeout)
 
 
 def _normalize_volume(item):
@@ -29,6 +29,11 @@ def _normalize_volume(item):
     categories = ", ".join(info.get("categories", []))
     image_links = info.get("imageLinks", {})
     volume_id = item["id"]
+    
+    isbns = info.get("industryIdentifiers", [])
+    isbn_13 = next((i["identifier"] for i in isbns if i.get("type") == "ISBN_13"), "")
+    isbn_10 = next((i["identifier"] for i in isbns if i.get("type") == "ISBN_10"), "")
+    
     return {
         "google_books_id": volume_id,
         "title": info.get("title", "Untitled"),
@@ -39,6 +44,8 @@ def _normalize_volume(item):
         "categories": categories,
         "cover_url": _pick_cover_url(image_links, volume_id),
         "thumbnail_url": _pick_thumbnail_url(image_links, volume_id),
+        "isbn_13": isbn_13,
+        "isbn_10": isbn_10,
     }
 
 
@@ -71,19 +78,24 @@ def search_google_books(query):
     if not normalized_query:
         return []
 
-    cached_results = cache.get(_cache_key("search", normalized_query))
+    cache_key = _cache_key("search", normalized_query)
+    cached_results = cache.get(cache_key)
     if cached_results is not None:
+        logger.debug("Google Books search cache hit query=%s", normalized_query)
         return cached_results
 
+    logger.debug("Google Books search cache miss query=%s", normalized_query)
     params = {"q": query, "maxResults": 12}
     if settings.GOOGLE_BOOKS_API_KEY:
         params["key"] = settings.GOOGLE_BOOKS_API_KEY
-    try:
-        payload = _request_json(settings.GOOGLE_BOOKS_API_BASE, params=params)
-    except requests.RequestException:
+    
+    payload = _request_json(settings.GOOGLE_BOOKS_API_BASE, params=params)
+    if not payload:
+        logger.warning("Google Books search request returned no payload query=%s", normalized_query)
         return []
+        
     results = [_normalize_volume(item) for item in payload.get("items", [])]
-    cache.set(_cache_key("search", normalized_query), results, SEARCH_CACHE_TTL)
+    cache.set(cache_key, results, SEARCH_CACHE_TTL)
     return results
 
 
@@ -129,21 +141,37 @@ def local_book_results(query="", limit=12):
             "categories": book.categories,
             "cover_url": book.cover_url or _google_cover_from_volume(book.google_books_id, 1),
             "thumbnail_url": book.thumbnail_url or _google_cover_from_volume(book.google_books_id, 1),
+            "isbn_13": book.isbn_13,
+            "isbn_10": book.isbn_10,
+            "openlibrary_id": book.openlibrary_id,
         }
         for book in queryset
     ]
 
 
+def fetch_google_book_data(volume_id):
+    cache_key = _cache_key("volume", volume_id)
+    cached_volume = cache.get(cache_key)
+    
+    if cached_volume is None:
+        logger.debug("Google Books volume cache miss id=%s", volume_id)
+        params = {}
+        if settings.GOOGLE_BOOKS_API_KEY:
+            params["key"] = settings.GOOGLE_BOOKS_API_KEY
+        
+        cached_volume = _request_json(f"{settings.GOOGLE_BOOKS_API_BASE}/{volume_id}", params=params)
+        if not cached_volume:
+            logger.error("Failed to fetch volume data from Google Books id=%s", volume_id)
+            raise Exception(f"Google Books volume {volume_id} not found or request failed")
+            
+        cache.set(cache_key, cached_volume, VOLUME_CACHE_TTL)
+    else:
+        logger.debug("Google Books volume cache hit id=%s", volume_id)
+        
+    return _normalize_volume(cached_volume)
+
 def sync_google_book(volume_id):
     book = Book.objects.filter(google_books_id=volume_id).first()
     if book:
         return book
-
-    cached_volume = cache.get(_cache_key("volume", volume_id))
-    params = {}
-    if settings.GOOGLE_BOOKS_API_KEY:
-        params["key"] = settings.GOOGLE_BOOKS_API_KEY
-    if cached_volume is None:
-        cached_volume = _request_json(f"{settings.GOOGLE_BOOKS_API_BASE}/{volume_id}", params=params)
-        cache.set(_cache_key("volume", volume_id), cached_volume, VOLUME_CACHE_TTL)
-    return Book.objects.create(**_normalize_volume(cached_volume))
+    return Book.objects.create(**fetch_google_book_data(volume_id))
