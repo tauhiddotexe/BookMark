@@ -7,6 +7,9 @@ from .models import (
     Activity, Book, BookList, BookListItem, Comment, DiaryEntry, Follow,
     Notification, Profile, Review, ShelfEntry
 )
+from django_mongodb_backend.fields import ObjectIdAutoField
+
+serializers.ModelSerializer.serializer_field_mapping[ObjectIdAutoField] = serializers.CharField
 
 
 def latest_comments_prefetch():
@@ -120,7 +123,7 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 class ReviewCreateSerializer(serializers.ModelSerializer):
     book_id = serializers.PrimaryKeyRelatedField(source="book", queryset=Book.objects.all())
-    user_id = serializers.IntegerField(write_only=True, required=False)
+    user_id = serializers.CharField(write_only=True, required=False)
     text = serializers.CharField(write_only=True, required=False, allow_blank=False)
 
     class Meta:
@@ -248,8 +251,8 @@ class FollowSerializer(serializers.ModelSerializer):
 
 class NotificationSerializer(serializers.ModelSerializer):
     actor = UserSerializer(read_only=True)
-    review_id = serializers.SerializerMethodField()
-    comment_id = serializers.SerializerMethodField()
+    review_id = serializers.CharField(source="review_id", read_only=True)
+    comment_id = serializers.CharField(source="comment_id", read_only=True)
 
     class Meta:
         model = Notification
