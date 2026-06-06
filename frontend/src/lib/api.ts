@@ -29,7 +29,7 @@ export const setAuthHydrated = (val: boolean) => {
   }
 };
 
-export const waitForAuthHydration = async () => {
+const waitForAuthHydration = async () => {
   if (isAuthHydrated) return;
   await authReadyPromise;
 };
@@ -127,6 +127,76 @@ function formatApiError(payload: unknown, status: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Fetch helpers — extracted to reduce cognitive complexity of `request`
+// ---------------------------------------------------------------------------
+function buildHeaders(
+  body: unknown,
+  token: string | null,
+  extraHeaders: HeadersInit | undefined
+): HeadersInit {
+  return {
+    ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(extraHeaders || {}),
+  };
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  if (response.status === 204) return undefined as T;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(formatApiError(payload, response.status));
+  return payload as T;
+}
+
+async function executeRequest<T>(
+  path: string,
+  init: RequestInit,
+  body: unknown,
+  headers: HeadersInit | undefined,
+  signal: AbortSignal,
+  authToken: string | undefined,
+  _isRetry: boolean
+): Promise<T> {
+  const token = authToken || (await getAccessToken());
+  const serializedBody = body !== undefined ? JSON.stringify(body) : undefined;
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    signal,
+    headers: buildHeaders(body, token, headers),
+    body: serializedBody,
+  });
+
+  // 401: try one token refresh, never sign-out
+  if (response.status === 401 && auth.currentUser && !_isRetry) {
+    console.warn(`[API] 401 on ${path}. Refreshing token once...`);
+    let newToken: string | null = null;
+    try {
+      newToken = await getAccessToken(true);
+    } catch {
+      console.error(`[API] Token refresh failed for ${path}`);
+    }
+    if (newToken) {
+      const retryResponse = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        signal,
+        headers: buildHeaders(body, newToken, headers),
+        body: serializedBody,
+      });
+      return parseJsonResponse<T>(retryResponse);
+    }
+    // Token refresh returned null — fall through and parse the original 401
+  }
+
+  // 403: permission error — never an auth failure
+  if (response.status === 403) {
+    console.warn(`[API] 403 on ${path}. Permission denied — NOT an auth failure.`);
+  }
+
+  return parseJsonResponse<T>(response);
+}
+
+// ---------------------------------------------------------------------------
 // Request types
 // ---------------------------------------------------------------------------
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -187,66 +257,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   const promise = (async () => {
     try {
-      const token = authToken || (await getAccessToken());
-
-      const response = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        signal: requestController.signal,
-        headers: {
-          ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(headers || {}),
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-
-      // --- 401 handling: try ONE token refresh, no sign-out ---
-      if (response.status === 401 && auth.currentUser && !_isRetry) {
-        console.warn(`[API] 401 on ${path}. Refreshing token once...`);
-
-        let newToken: string | null = null;
-        try {
-          newToken = await getAccessToken(true);
-        } catch {
-          console.error(`[API] Token refresh failed for ${path}`);
-        }
-
-        if (newToken) {
-          const retryResponse = await fetch(`${API_BASE}${path}`, {
-            ...init,
-            signal: requestController.signal,
-            headers: {
-              ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-              Authorization: `Bearer ${newToken}`,
-              ...(headers || {}),
-            },
-            body: body !== undefined ? JSON.stringify(body) : undefined,
-          });
-
-          // NEVER sign out. If retry also fails, just throw the error.
-          if (retryResponse.status === 204) return undefined as T;
-
-          const retryPayload = await retryResponse.json().catch(() => ({}));
-          if (!retryResponse.ok) {
-            throw new Error(formatApiError(retryPayload, retryResponse.status));
-          }
-          return retryPayload as T;
-        }
-        // Token refresh returned null — just throw the original 401 error
-      }
-
-      // --- 403 handling: NEVER sign out. This is a permission error. ---
-      if (response.status === 403) {
-        console.warn(`[API] 403 on ${path}. Permission denied — NOT an auth failure.`);
-      }
-
-      if (response.status === 204) return undefined as T;
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(formatApiError(payload, response.status));
-      }
-      return payload as T;
+      return await executeRequest<T>(
+        path, init, body, headers, requestController.signal, authToken, _isRetry ?? false
+      );
     } catch (err: any) {
       // Gracefully handle AbortErrors — don't let them surface as uncaught
       if (err.name === "AbortError") {
@@ -378,8 +391,6 @@ export const toggleReviewLike = async (reviewId: number, token: string, liked: b
 export const syncUser = (authToken?: string, options: RequestOptions = {}) =>
   request<User>("/auth/me/", { authToken, ...options });
 
-export const getCurrentUser = (token: string, options: RequestOptions = {}) =>
-  request<User>("/auth/me/", { authToken: token, ...options });
 
 export function getActivities(feed: "global" | "following" = "global", page = 1, options: RequestOptions = {}) {
   return request<ActivityResponse>(`/activities/?feed=${feed}&page=${page}`, options);

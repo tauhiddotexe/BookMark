@@ -489,7 +489,6 @@ button.chip-solid:hover,
 }
 
 .review-card:hover,
-.book-card:hover,
 .search-card:hover,
 .list-card:hover,
 .shelf:hover {
@@ -542,7 +541,6 @@ button.chip-solid:hover,
 .book-hero-meta,
 .stat-strip,
 .review-actions,
-.book-card-meta,
 .search-card-meta,
 .tab-row,
 .auth-links {
@@ -640,7 +638,6 @@ button.chip-solid:hover,
   font-weight: 700;
 }
 
-.book-card,
 .list-card,
 .search-card,
 .composer-card,
@@ -653,25 +650,17 @@ button.chip-solid:hover,
   padding: 18px;
 }
 
-.book-card,
 .list-card,
 .search-card,
 .shelf {
   transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
-.book-card {
-  display: grid;
-  gap: 14px;
-}
-
-.book-card-body,
 .search-card-body {
   display: grid;
   gap: 12px;
 }
 
-.book-card h3,
 .search-card h3,
 .list-card h3,
 .shelf h3 {

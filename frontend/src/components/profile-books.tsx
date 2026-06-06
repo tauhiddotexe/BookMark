@@ -28,15 +28,15 @@ export function ProfileBooks({ shelves, labels }: ProfileBooksProps) {
         </div>
       </div>
 
-      {view === "grid" ? (
-        <section className="shelf-grid">
-          {entries.map(([key, books]) => (
-            <article key={key} className="card shelf">
-              <div className="section-head">
-                <h2>{labels[key] || key}</h2>
-                <span className="section-link">{books.length} books</span>
-              </div>
-              {books.length ? (
+      <section className={view === "grid" ? "shelf-grid" : "stack"}>
+        {entries.map(([key, books]) => (
+          <article key={key} className="card shelf">
+            <div className="section-head">
+              <h2>{labels[key] || key}</h2>
+              <span className="section-link">{books.length} books</span>
+            </div>
+            {books.length ? (
+              view === "grid" ? (
                 <div className="mini-books">
                   {books.slice(0, 6).map((book) => (
                     <Link key={book.id} to={`/books/${book.slug}`}>
@@ -45,20 +45,6 @@ export function ProfileBooks({ shelves, labels }: ProfileBooksProps) {
                   ))}
                 </div>
               ) : (
-                <p className="muted">No books here yet.</p>
-              )}
-            </article>
-          ))}
-        </section>
-      ) : (
-        <section className="stack">
-          {entries.map(([key, books]) => (
-            <article key={key} className="card shelf">
-              <div className="section-head">
-                <h2>{labels[key] || key}</h2>
-                <span className="section-link">{books.length} books</span>
-              </div>
-              {books.length ? (
                 <div className="profile-book-list">
                   {books.map((book) => (
                     <Link key={book.id} to={`/books/${book.slug}`} className="profile-book-row">
@@ -70,13 +56,13 @@ export function ProfileBooks({ shelves, labels }: ProfileBooksProps) {
                     </Link>
                   ))}
                 </div>
-              ) : (
-                <p className="muted">No books here yet.</p>
-              )}
-            </article>
-          ))}
-        </section>
-      )}
+              )
+            ) : (
+              <p className="muted">No books here yet.</p>
+            )}
+          </article>
+        ))}
+      </section>
     </div>
   );
 }

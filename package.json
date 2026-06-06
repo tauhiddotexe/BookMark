@@ -17,7 +17,8 @@
   },
   "homepage": "https://github.com/tauhiddotexe/BookMark#readme",
   "description": "",
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "firebase-tools": "^15.18.0"
   }
 }

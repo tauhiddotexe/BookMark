@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
-import { BookCover } from "@/components/book-cover";
 import { Loading } from "@/components/loading";
 import { getLists } from "@/lib/api";
 import { BookList } from "@/lib/types";
+import { ListCard } from "@/components/list-card";
 
 export function ListsPage() {
   const [lists, setLists] = useState<BookList[]>([]);
@@ -35,24 +35,7 @@ export function ListsPage() {
 
       <section className="book-grid">
         {lists.map((list) => (
-          <article key={list.id} className="card list-card">
-            <span className="pill">{list.items.length} books</span>
-            <h3 style={{ marginTop: 12 }}>{list.name}</h3>
-            <p className="muted">{list.description}</p>
-            <div className="list-cover-strip">
-              {list.items.slice(0, 4).map((item) => (
-                <BookCover
-                  key={item.id}
-                  className="cover"
-                  title={item.book.title}
-                  author={item.book.author}
-                  googleBooksId={item.book.google_books_id}
-                  coverUrl={item.book.cover_url}
-                  thumbnailUrl={item.book.thumbnail_url}
-                />
-              ))}
-            </div>
-          </article>
+          <ListCard key={list.id} list={list} />
         ))}
       </section>
     </div>
