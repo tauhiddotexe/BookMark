@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getBookState, setBookShelf } from "@/lib/api";
+import { getBookState, setBookShelf, logDiaryEntry } from "@/lib/api";
 import { BookState, DiaryEntry } from "@/lib/types";
 import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/components/toast-provider";
@@ -27,6 +27,8 @@ export function UserBookStatusPanel({ slug, bookId, bookTitle }: { slug: string;
   
   const [showLogModal, setShowLogModal] = useState(false);
   const [editingDiaryEntry, setEditingDiaryEntry] = useState<DiaryEntry | null>(null);
+  const [quickRatePending, setQuickRatePending] = useState(false);
+  const [hoverRating, setHoverRating] = useState(0);
 
   const fetchState = async (signal?: AbortSignal) => {
     if (!localUser) return;
@@ -49,6 +51,32 @@ export function UserBookStatusPanel({ slug, bookId, bookTitle }: { slug: string;
     fetchState(controller.signal);
     return () => controller.abort();
   }, [slug, localUser, getToken]);
+
+  async function handleQuickRate(stars: number) {
+    const token = await getToken();
+    if (!token) {
+      pushToast("Log in to rate books.", "error");
+      return;
+    }
+    setQuickRatePending(true);
+    try {
+      const existingEntries = state?.diary_entries || [];
+      await logDiaryEntry(token, {
+        book_id: bookId,
+        read_date: new Date().toISOString().split("T")[0],
+        rating: stars,
+        review_text: "",
+        is_reread: existingEntries.length > 0,
+        contains_spoilers: false,
+      });
+      pushToast(`Rated ${stars} ★`);
+      await fetchState();
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : "Could not save rating.", "error");
+    } finally {
+      setQuickRatePending(false);
+    }
+  }
 
   async function handleShelfChange(nextShelf: string) {
     const token = await getToken();
@@ -127,6 +155,33 @@ export function UserBookStatusPanel({ slug, bookId, bookTitle }: { slug: string;
           >
             Clear
           </button>
+        </div>
+      </div>
+
+      {/* Quick Rate */}
+      <div className="status-section">
+        <label className="section-label">Your Rating</label>
+        <div className="quick-rate-row" onMouseLeave={() => setHoverRating(0)}>
+          {[1, 2, 3, 4, 5].map((star) => {
+            const active = hoverRating > 0 ? star <= hoverRating : star <= Math.round(displayRating || 0);
+            return (
+              <button
+                key={star}
+                type="button"
+                disabled={quickRatePending}
+                className={`quick-rate-star ${active ? "active" : ""}`}
+                onMouseEnter={() => setHoverRating(star)}
+                onClick={() => handleQuickRate(star)}
+                title={`Rate ${star} star${star !== 1 ? "s" : ""}`}
+                aria-label={`Rate ${star} star${star !== 1 ? "s" : ""}`}
+              >
+                ★
+              </button>
+            );
+          })}
+          {displayRating && (
+            <span className="quick-rate-value muted">{Number(displayRating).toFixed(1)}</span>
+          )}
         </div>
       </div>
 
@@ -210,6 +265,35 @@ export function UserBookStatusPanel({ slug, bookId, bookTitle }: { slug: string;
       )}
 
       <style>{`
+        .quick-rate-row {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .quick-rate-star {
+          background: none;
+          border: none;
+          cursor: pointer;
+          font-size: 1.6rem;
+          line-height: 1;
+          padding: 2px 3px;
+          color: rgba(255, 255, 255, 0.2);
+          transition: color 120ms ease, transform 120ms ease;
+        }
+        .quick-rate-star:hover,
+        .quick-rate-star.active {
+          color: var(--gold, #f5c518);
+          transform: scale(1.15);
+        }
+        .quick-rate-star:disabled {
+          cursor: not-allowed;
+          opacity: 0.5;
+        }
+        .quick-rate-value {
+          margin-left: 6px;
+          font-size: 0.9rem;
+          font-weight: 600;
+        }
         .status-panel {
           display: flex;
           flex-direction: column;
