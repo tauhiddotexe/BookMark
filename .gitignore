@@ -33,3 +33,8 @@ db-data/
 dist/
 frontend/dist/
 build/
+
+#agent-instructions
+Claude.md
+PROJECT_DEEP_DIVE.md
+caveman.md
