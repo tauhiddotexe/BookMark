@@ -13,7 +13,7 @@ const OPTIONS = [
   { value: "dropped", label: "Dropped" }
 ];
 
-export function BookLogPanel({ slug, bookId, bookTitle }: { slug: string; bookId: number; bookTitle: string }) {
+export function BookLogPanel({ slug, bookId, bookTitle }: { slug: string; bookId: string; bookTitle: string }) {
   const { pushToast } = useToast();
   const { getToken, user } = useAuth();
   const [selected, setSelected] = useState("");

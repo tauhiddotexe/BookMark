@@ -12,15 +12,15 @@ const LIKED_STORAGE_KEY = "bookmark_liked_reviews";
 
 function readLikedReviewIds() {
   const raw = window.localStorage.getItem(LIKED_STORAGE_KEY);
-  if (!raw) return new Set<number>();
+  if (!raw) return new Set<string>();
   try {
-    return new Set<number>(JSON.parse(raw));
+    return new Set<string>(JSON.parse(raw));
   } catch {
-    return new Set<number>();
+    return new Set<string>();
   }
 }
 
-function writeLikedReviewIds(ids: Set<number>) {
+function writeLikedReviewIds(ids: Set<string>) {
   window.localStorage.setItem(LIKED_STORAGE_KEY, JSON.stringify([...ids]));
 }
 

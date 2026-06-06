@@ -6,7 +6,7 @@ import { useToast } from "./toast-provider";
 import { CalendarIcon, XIcon, SaveIcon, AlertIcon } from "./icons";
 
 interface DiaryLogModalProps {
-  bookId: number;
+  bookId: string;
   bookTitle: string;
   onClose: () => void;
   onSuccess: () => void;

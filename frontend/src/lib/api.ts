@@ -348,7 +348,7 @@ export const importGoogleBook = async (volumeId: string, token: string) => {
 
 export const createReview = async (
   token: string,
-  payload: { user_id?: number; book_id: number; rating: number; review_text: FormDataEntryValue | null; text?: FormDataEntryValue | null; contains_spoilers: boolean }
+  payload: { user_id?: string; book_id: string; rating: number; review_text: FormDataEntryValue | null; text?: FormDataEntryValue | null; contains_spoilers: boolean }
 ) => {
   const res = await request<{ id: number }>("/reviews/", {
     method: "POST",
@@ -362,7 +362,7 @@ export const createReview = async (
 export const logDiaryEntry = async (
   token: string,
   payload: {
-    book_id: number;
+    book_id: string;
     read_date: string;
     rating?: number;
     review_text?: string;
@@ -379,7 +379,41 @@ export const logDiaryEntry = async (
   return res;
 };
 
-export const toggleReviewLike = async (reviewId: number, token: string, liked: boolean) => {
+export const updateDiaryEntry = async (
+  id: string,
+  token: string,
+  payload: {
+    read_date: string;
+    rating?: number | null;
+    review_text?: string;
+    is_reread: boolean;
+    contains_spoilers: boolean;
+  }
+) => {
+  const res = await request(`/diary/${id}/`, {
+    method: "PATCH",
+    authToken: token,
+    body: payload,
+  });
+  clearApiCache();
+  return res;
+};
+
+export const deleteDiaryEntry = async (id: string, token: string) => {
+  const res = await request(`/diary/${id}/`, {
+    method: "DELETE",
+    authToken: token,
+  });
+  clearApiCache();
+  return res;
+};
+
+export const getDiaryEntries = (params: Record<string, string | number | boolean>, options: RequestOptions = {}) => {
+  const query = new URLSearchParams(params as any).toString();
+  return request<import("@/lib/types").DiaryResponse>(`/diary/?${query}`, options);
+};
+
+export const toggleReviewLike = async (reviewId: string, token: string, liked: boolean) => {
   const res = await request<{ likes_count: number }>(`/reviews/${reviewId}/${liked ? "unlike" : "like"}/`, {
     method: "POST",
     authToken: token,

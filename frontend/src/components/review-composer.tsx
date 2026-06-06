@@ -6,7 +6,7 @@ import { createReview } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/components/toast-provider";
 
-export function ReviewComposer({ bookId }: { bookId: number }) {
+export function ReviewComposer({ bookId }: { bookId: string }) {
   const navigate = useNavigate();
   const { pushToast } = useToast();
   const { getToken } = useAuth();
