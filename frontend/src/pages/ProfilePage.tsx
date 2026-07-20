@@ -1,182 +1,184 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-
+import { Link } from "react-router-dom";
+import { motion } from "motion/react";
+import { getMyProfile } from "@/lib/api";
+import { MeDetail } from "@/lib/types";
 import { BookCover } from "@/components/book-cover";
-import { ProfileBooks } from "@/components/profile-books";
-import { ReviewCard } from "@/components/review-card";
-import { ProfileStats } from "@/components/profile-stats";
 import { Loading } from "@/components/loading";
-import { formatCompactNumber } from "@/lib/format";
-import { getProfile, followUser, unfollowUser } from "@/lib/api";
-import { ProfileDetail } from "@/lib/types";
-import { useToast } from "@/components/toast-provider";
-import { useAuth } from "@/context/auth-context";
-
-const labels: Record<string, string> = { read: "Read", reading: "Reading", want_to_read: "Want to Read" };
-
-/** Validate profile slug: alphanumeric, underscores, dots, hyphens only */
-function isValidProfileSlug(slug: string): boolean {
-  return /^[a-zA-Z0-9_.-]{1,150}$/.test(slug);
-}
+import { FadeIn, StaggerContainer, StaggerItem } from "@/components/motion/page-transition";
+import { Badge } from "@/components/ui/badge";
+import { HeroParallax } from "@/components/gsap/hero-parallax";
+import { SectionReveal } from "@/components/gsap/section-reveal";
+import { BookshelfIllustration } from "@/components/illustrations";
 
 export function ProfilePage() {
-  const { username } = useParams<{ username: string }>();
-  const [profile, setProfile] = useState<ProfileDetail | null>(null);
+  const [profile, setProfile] = useState<MeDetail | null>(null);
+  const [activeTab, setActiveTab] = useState<"diary" | "reviews" | "readlist" | "favorites">("diary");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [following, setFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-  const { pushToast } = useToast();
-  const { getToken, localUser } = useAuth();
 
   useEffect(() => {
-    if (!username) return;
-
-    // Defensive slug validation — reject before API call
-    if (!isValidProfileSlug(username)) {
-      console.warn(`[Profile] Invalid profile slug rejected: "${username}". Not sending API request.`);
-      setError("Invalid profile URL.");
-      setLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    setLoading(true);
-    setError("");
-    
-    console.debug(`[Profile] Loading profile for slug: "${username}"`);
-    
-    getToken().then(token => {
-      if (controller.signal.aborted) return;
-      getProfile(username, token || undefined, { signal: controller.signal })
-        .then((data) => {
-          setProfile(data);
-          setFollowing(data.is_following);
-          document.title = `@${data.username} — Bookmark`;
-          console.debug(`[Profile] Successfully loaded profile: "${data.username}"`);
-        })
-        .catch((err) => {
-          if (err.name !== "AbortError") {
-            console.warn(`[Profile] Failed to load profile "${username}":`, err.message);
-            setError(err instanceof Error ? err.message : "Could not load profile.");
-          }
-        })
-        .finally(() => { setLoading(false); });
-    });
-
-    return () => controller.abort();
-  }, [username, getToken]);
+    getMyProfile()
+      .then(setProfile)
+      .finally(() => setLoading(false));
+  }, []);
 
   if (loading) return <Loading />;
-  if (error || !profile) return <p className="muted">{error || "Profile not found."}</p>;
+  if (!profile) return <p className="text-[var(--color-muted)]">Could not load profile.</p>;
 
-  const coverWall = Object.values(profile.shelves || {}).flat().slice(0, 12);
-  const booksRead = profile.shelves?.read?.length || 0;
-  const averageRating =
-    profile.reviews?.length > 0
-      ? (profile.reviews.reduce((total, review) => total + Number(review.rating), 0) / profile.reviews.length).toFixed(1)
-      : "0.0";
-  const avatar = profile.profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.username)}&background=16231c&color=f7f7f2&size=240`;
-  const joinDate = profile.date_joined ? new Date(profile.date_joined).toLocaleDateString(undefined, { year: 'numeric', month: 'long' }) : null;
+  const { stats } = profile;
+
+  const tabs = ["diary", "reviews", "readlist", "favorites"] as const;
 
   return (
-    <div className="stack">
-      <section className="panel hero-panel profile-summary">
-        <div className="profile-hero">
-          <img className="profile-avatar" src={avatar} alt={profile.username} />
-          <div className="profile-column">
-            <div className="profile-meta">
-              <span className="pill">@{profile.username}</span>
-              <span className="chip">{formatCompactNumber(profile.followers_count + (following && !profile.is_following ? 1 : (!following && profile.is_following ? -1 : 0)))} followers</span>
-              <span className="chip">{formatCompactNumber(profile.following_count)} following</span>
-              {joinDate && <span className="chip">Joined {joinDate}</span>}
-              {localUser && profile.username !== localUser.username && (
-                <button 
-                  className={`btn ${following ? "btn-secondary" : "btn-primary"} btn-sm`}
-                  onClick={async () => {
-                    const token = await getToken();
-                    if (!token) return;
-                    setFollowLoading(true);
-                    try {
-                      if (following) {
-                        await unfollowUser(profile.username, token);
-                        setFollowing(false);
-                        pushToast("Unfollowed user");
-                      } else {
-                        await followUser(profile.username, token);
-                        setFollowing(true);
-                        pushToast("Following user", "success");
-                      }
-                    } catch (err) {
-                      pushToast("Failed to update follow status", "error");
-                    } finally {
-                      setFollowLoading(false);
-                    }
-                  }}
-                  disabled={followLoading}
-                >
-                  {following ? "Unfollow" : "Follow"}
-                </button>
-              )}
-            </div>
-            <h1 className="profile-name">
-              {profile.profile.display_name || profile.username}
-              {profile.is_following && <span className="follows-you-badge">Follows you</span>}
-            </h1>
-            <p className="lede">{profile.profile.bio || "Building a public reading life, one review at a time."}</p>
+    <div className="grid gap-7">
+      <HeroParallax>
+        <motion.div
+          className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 md:gap-5 items-center"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="w-[72px] h-[72px] md:w-[92px] md:h-[92px] rounded-[20px] md:rounded-[28px] overflow-hidden bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.1)] shadow-[0_18px_36px_rgba(0,0,0,0.26)] flex-shrink-0">
+            {profile.profile?.avatar_url ? (
+              <img src={profile.profile.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full grid place-items-center font-bold text-[var(--color-muted)] text-2xl">
+                {profile.username[0]?.toUpperCase()}
+              </div>
+            )}
           </div>
-        </div>
-      </section>
-
-      <section className="profile-stats">
-        <article className="card profile-stat-card">
-          <strong>{booksRead}</strong>
-          <span className="muted">Books read</span>
-        </article>
-        <article className="card profile-stat-card">
-          <strong>{averageRating}</strong>
-          <span className="muted">Average rating</span>
-        </article>
-        <article className="card profile-stat-card">
-          <strong>{profile.reviews?.length || 0}</strong>
-          <span className="muted">Reviews written</span>
-        </article>
-        <article className="card profile-stat-card">
-          <strong>{profile.diary_entries?.length || 0}</strong>
-          <span className="muted">Diary entries</span>
-        </article>
-        <article className="card profile-stat-card">
-          <strong>{profile.lists?.length || 0}</strong>
-          <span className="muted">Public lists</span>
-        </article>
-      </section>
-
-      <ProfileStats reviews={profile.reviews || []} />
-
-      {coverWall.length > 0 ? (
-        <section className="card rail-card">
-          <div className="section-head">
-            <h2>Cover Wall</h2>
+          <div className="grid gap-2">
+            <h1 className="m-0 text-[clamp(2rem,4vw,3.3rem)] tracking-[-0.05em]">{profile.profile?.display_name || profile.username}</h1>
+            {profile.profile?.bio && <p className="m-0 text-[var(--color-muted)]">{profile.profile.bio}</p>}
           </div>
-          <div className="cover-grid">
-            {coverWall.map((book) => (
-              <Link key={`${book.id}-${book.slug}`} to={`/books/${book.slug}`}>
-                <BookCover title={book.title} author={book.author} googleBooksId={book.google_books_id} coverUrl={book.cover_url} thumbnailUrl={book.thumbnail_url} />
-              </Link>
+          <BookshelfIllustration className="w-28 h-18 text-[rgba(0,196,106,0.2)] flex-shrink-0 hidden sm:block" />
+        </motion.div>
+      </HeroParallax>
+
+      {stats && (
+        <StaggerContainer className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {([
+            { value: stats.total_books_read, label: "Total Read" },
+            { value: stats.books_read_this_year, label: "This Year" },
+            { value: stats.average_rating, label: "Avg Rating" },
+            { value: stats.total_reviews, label: "Reviews" },
+          ] as const).map((stat) => (
+            <StaggerItem key={stat.label}>
+              <div className="grid gap-1.5 md:gap-2 p-4 md:p-5 rounded-[var(--radius-lg)] bg-[rgba(255,255,255,0.045)] border border-[rgba(255,255,255,0.05)] shadow-[var(--shadow-md)]">
+                <strong className="text-[1.3rem] md:text-[1.55rem]">{stat.value}</strong>
+                <span className="text-[var(--color-muted)] text-xs md:text-sm">{stat.label}</span>
+              </div>
+            </StaggerItem>
+          ))}
+        </StaggerContainer>
+      )}
+
+      {stats?.favorite_genres && stats.favorite_genres.length > 0 && (
+        <SectionReveal>
+          <div className="flex flex-wrap gap-2">
+            {stats.favorite_genres.map((g) => (
+              <Badge key={g}>{g}</Badge>
             ))}
           </div>
-        </section>
-      ) : null}
+        </SectionReveal>
+      )}
 
-      <ProfileBooks shelves={profile.shelves || {}} labels={labels} />
+      <motion.div
+        className="flex gap-1 p-1 rounded-full bg-[rgba(255,255,255,0.04)] border border-[var(--color-line)] w-full sm:w-fit overflow-x-auto scrollbar-none"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            className={`flex-shrink-0 px-3.5 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-180 ${
+              activeTab === tab
+                ? "bg-gradient-to-r from-[#00c46a] to-[#4ff1a8] text-[#04130b]"
+                : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            }`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </motion.div>
 
-      <div className="section-head">
-        <h2>Recent Reviews</h2>
+      <SectionReveal>
+      <div className="grid gap-4">
+        {activeTab === "diary" && (
+          <StaggerContainer className="grid gap-3">
+            {profile.diary_entries.length === 0 && <p className="text-[var(--color-muted)]">No diary entries yet.</p>}
+            {profile.diary_entries.map((entry) => (
+              <StaggerItem key={entry.id}>
+                <Link to={`/books/${entry.book.slug}`} className="flex items-start gap-4 p-3 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.02)] transition-all hover:border-[rgba(255,255,255,0.14)]">
+                  <BookCover book={entry.book} size="small" />
+                  <div className="grid gap-1.5">
+                    <strong>{entry.book.title}</strong>
+                    <span className="text-xs text-[var(--color-muted)]">
+                      {entry.rating && <>{entry.rating} ★</>}
+                      {entry.is_reread && " — Re-read"}
+                      {" — "}{new Date(entry.read_date).toLocaleDateString()}
+                    </span>
+                    {entry.review_text && <p className="text-sm text-[var(--color-muted-strong)] m-0">{entry.review_text.slice(0, 140)}</p>}
+                  </div>
+                </Link>
+              </StaggerItem>
+            ))}
+          </StaggerContainer>
+        )}
+
+        {activeTab === "reviews" && (
+          <StaggerContainer className="grid gap-3">
+            {profile.reviews.length === 0 && <p className="text-[var(--color-muted)]">No reviews yet.</p>}
+            {profile.reviews.map((review) => (
+              <StaggerItem key={review.id}>
+                <Link to={`/books/${review.book.slug}`} className="flex items-start gap-4 p-3 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.02)] transition-all hover:border-[rgba(255,255,255,0.14)]">
+                  <BookCover book={review.book} size="small" />
+                  <div className="grid gap-1.5">
+                    <strong>{review.book.title}</strong>
+                    <span className="text-xs text-[var(--color-muted)]">{review.rating} ★ — {new Date(review.created_at).toLocaleDateString()}</span>
+                    {review.review_text && <p className="text-sm text-[var(--color-muted-strong)] m-0">{review.review_text.slice(0, 200)}</p>}
+                  </div>
+                </Link>
+              </StaggerItem>
+            ))}
+          </StaggerContainer>
+        )}
+
+        {activeTab === "readlist" && (
+          <StaggerContainer className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {profile.readlist.length === 0 && <p className="text-[var(--color-muted)] col-span-full">Your readlist is empty.</p>}
+            {profile.readlist.map((entry) => (
+              <StaggerItem key={entry.id}>
+                <Link to={`/books/${entry.book.slug}`} className="grid gap-2">
+                  <motion.div whileHover={{ scale: 1.03, y: -4 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
+                    <BookCover book={entry.book} size="medium" />
+                  </motion.div>
+                  <span className="text-xs text-center leading-tight line-clamp-2">{entry.book.title}</span>
+                </Link>
+              </StaggerItem>
+            ))}
+          </StaggerContainer>
+        )}
+
+        {activeTab === "favorites" && (
+          <StaggerContainer className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {profile.favorite_books.length === 0 && <p className="text-[var(--color-muted)] col-span-full">No favorites yet.</p>}
+            {profile.favorite_books.map((fav) => (
+              <StaggerItem key={fav.id}>
+                <Link to={`/books/${fav.book.slug}`} className="grid gap-2">
+                  <motion.div whileHover={{ scale: 1.03, y: -4 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
+                    <BookCover book={fav.book} size="medium" />
+                  </motion.div>
+                  <span className="text-xs text-center leading-tight line-clamp-2">{fav.book.title}</span>
+                </Link>
+              </StaggerItem>
+            ))}
+          </StaggerContainer>
+        )}
       </div>
-      <section className="feed">
-        {profile.reviews?.length ? profile.reviews.map((review) => <ReviewCard key={review.id} review={review} />) : <p className="muted">No reviews yet. Search for a book and post the first one.</p>}
-      </section>
+      </SectionReveal>
     </div>
   );
 }

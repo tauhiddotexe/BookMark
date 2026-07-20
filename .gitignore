@@ -9,7 +9,14 @@ backend/staticfiles/
 backend/venv/
 my-skills/
 .agents/
-
+.claude/
+.fallow/
+.opencode/
+.cursor/
+.clinerules/
+.windsurf/
+.idea/
+.vscode/
 
 # Graphify
 graphify-out/*
@@ -38,3 +45,12 @@ build/
 Claude.md
 PROJECT_DEEP_DIVE.md
 caveman.md
+
+# Development & testing
+test-screenshots/
+homepage.png
+skills-lock.json
+frontend/components.json
+
+# Agent skill locks
+.skill-lock.json

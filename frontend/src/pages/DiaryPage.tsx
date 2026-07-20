@@ -1,471 +1,253 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-
-import { getDiaryEntries, deleteDiaryEntry } from "@/lib/api";
-import { DiaryEntry } from "@/lib/types";
+import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "@/context/auth-context";
-import { StarIcon, TrashIcon, EditIcon } from "@/components/icons";
-import { useToast } from "@/components/toast-provider";
-import { EditDiaryModal } from "@/components/edit-diary-modal";
+import { getDiaryEntries, updateDiaryEntry, deleteDiaryEntry } from "@/lib/api";
+import { DiaryEntry } from "@/lib/types";
+import { BookCover } from "@/components/book-cover";
+import { StarPicker } from "@/components/star-picker";
+import { Loading } from "@/components/loading";
+import { FadeIn, StaggerContainer, StaggerItem } from "@/components/motion/page-transition";
+import { SectionReveal } from "@/components/gsap/section-reveal";
+import { CalendarDiary } from "@/components/calendar-diary";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { EmptyStateIllustration } from "@/components/illustrations";
+
+const ease = [0.16, 1, 0.3, 1] as const;
 
 export function DiaryPage() {
-  const { localUser, loading: authLoading, getToken } = useAuth();
-  const { pushToast } = useToast();
-  
+  const { getToken } = useAuth();
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [nextPage, setNextPage] = useState<number | null>(1);
-  const [loadingMore, setLoadingMore] = useState(false);
-  
-  const [editingEntry, setEditingEntry] = useState<DiaryEntry | null>(null);
-  
-  // Filters
-  const [yearFilter, setYearFilter] = useState("");
-  const [ratingFilter, setRatingFilter] = useState("");
-  const [rereadFilter, setRereadFilter] = useState(false);
-  const [shelfFilter, setShelfFilter] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editRating, setEditRating] = useState(0);
+  const [editText, setEditText] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editReread, setEditReread] = useState(false);
+  const [editTags, setEditTags] = useState("");
 
-  const loadEntries = useCallback(async (page: number, append = false) => {
-    if (!localUser?.username) return;
-    
-    try {
-      if (!append) setLoading(true);
-      else setLoadingMore(true);
-      setError(null);
+  const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
 
-      const params: Record<string, string | number | boolean> = {
-        username: localUser.username,
-        page,
-      };
-      if (yearFilter) params.year = yearFilter;
-      if (ratingFilter) params.rating = ratingFilter;
-      if (rereadFilter) params.is_reread = true;
-      if (shelfFilter) params.shelf = shelfFilter;
+  const [submitting, setSubmitting] = useState(false);
 
-      const data = await getDiaryEntries(params);
-      
-      setEntries(prev => append ? [...prev, ...data.results] : data.results);
-      
-      if (data.next) {
-        const url = new URL(data.next);
-        const nextPg = url.searchParams.get("page");
-        setNextPage(nextPg ? parseInt(nextPg, 10) : null);
-      } else {
-        setNextPage(null);
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to load diary entries");
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [localUser?.username, yearFilter, ratingFilter, rereadFilter, shelfFilter]);
-
-  useEffect(() => {
-    if (!authLoading && localUser) {
-      loadEntries(1);
-    }
-  }, [authLoading, localUser, loadEntries]);
-
-  const handleEditSuccess = (updatedEntry: DiaryEntry) => {
-    setEntries(prev => prev.map(e => e.id === updatedEntry.id ? updatedEntry : e));
+  const loadEntries = () => {
+    setLoading(true);
+    getDiaryEntries(filters)
+      .then((data) => setEntries(data.results || []))
+      .finally(() => setLoading(false));
   };
 
-  const handleDelete = async (entryId: string) => {
-    if (!window.confirm("Are you sure you want to permanently delete this diary entry? This action cannot be undone.")) {
-      return;
-    }
-    
-    const token = await getToken();
-    if (!token) return;
-    
-    try {
-      await deleteDiaryEntry(entryId, token);
-      pushToast("Entry deleted successfully.");
-      setEntries(prev => prev.filter(e => e.id !== entryId));
-    } catch (err: any) {
-      pushToast(err.message || "Failed to delete entry.", "error");
-    }
-  };
-
-  // Group by Year and Month
-  const groupedEntries = useMemo(() => {
-    const groups: { year: string; month: string; entries: DiaryEntry[] }[] = [];
-    
-    const sorted = [...entries].sort((a, b) => new Date(b.read_date).getTime() - new Date(a.read_date).getTime());
-    
-    sorted.forEach(entry => {
-      const date = new Date(entry.read_date);
-      const year = date.getFullYear().toString();
-      const month = date.toLocaleString('default', { month: 'long' });
-      
-      const lastGroup = groups[groups.length - 1];
-      if (lastGroup && lastGroup.year === year && lastGroup.month === month) {
-        lastGroup.entries.push(entry);
-      } else {
-        groups.push({ year, month, entries: [entry] });
-      }
-    });
-    
-    return groups;
-  }, [entries]);
-
-  if (authLoading || (loading && entries.length === 0 && !error)) {
-    return (
-      <div className="shell page-loading">
-        <div className="spinner"></div>
-        <style>{`
-          .page-loading { display: flex; justify-content: center; padding: 4rem; }
-          .spinner { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--text); border-radius: 50%; animation: spin 1s linear infinite; }
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
-      </div>
-    );
-  }
+  useEffect(() => { loadEntries(); }, [filters]);
 
   const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
+
+  const startEdit = (entry: DiaryEntry) => {
+    setEditingId(entry.id);
+    setEditRating(parseFloat(entry.rating || "0"));
+    setEditText(entry.review_text);
+    setEditDate(entry.read_date);
+    setEditReread(entry.is_reread);
+    setEditTags((entry.tags || []).join(", "));
+    setViewMode("list");
+  };
+
+  const handleUpdate = async () => {
+    if (!editingId) return;
+    const token = await getToken();
+    if (!token) return;
+    setSubmitting(true);
+    try {
+      await updateDiaryEntry(editingId, token, {
+        read_date: editDate, rating: editRating || null, review_text: editText,
+        is_reread: editReread, tags: editTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      setEditingId(null);
+      loadEntries();
+    } catch (e) { console.error(e); }
+    setSubmitting(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    const token = await getToken();
+    if (!token) return;
+    await deleteDiaryEntry(id, token);
+    loadEntries();
+  };
+
+  // Clear inline editing when switching to calendar view
+  const handleViewChange = (mode: "calendar" | "list") => {
+    if (mode === "calendar") setEditingId(null);
+    setViewMode(mode);
+  };
+
+  const groupedEntries = entries.reduce<Record<string, DiaryEntry[]>>((acc, entry) => {
+    const date = new Date(entry.read_date);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(entry);
+    return acc;
+  }, {});
 
   return (
-    <div className="shell diary-page">
-      <div className="diary-header">
-        <h1 className="page-title">Reading Diary</h1>
-        <p className="lede">A chronological record of books you've read.</p>
-      </div>
-
-      <div className="diary-filters panel">
-        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
-          <option value="">All Years</option>
-          {Array.from({length: 10}, (_, i) => currentYear - i).map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-
-        <select value={ratingFilter} onChange={e => setRatingFilter(e.target.value)}>
-          <option value="">All Ratings</option>
-          <option value="5">5 Stars</option>
-          <option value="4">4 Stars</option>
-          <option value="3">3 Stars</option>
-          <option value="2">2 Stars</option>
-          <option value="1">1 Star</option>
-        </select>
-
-        <select value={shelfFilter} onChange={e => setShelfFilter(e.target.value)}>
-          <option value="">All Shelves</option>
-          <option value="READ">Read</option>
-          <option value="REREADING">Re-reading</option>
-          <option value="CURRENTLY_READING">Currently Reading</option>
-          <option value="WANT_TO_READ">Want to Read</option>
-          <option value="DROPPED">Dropped</option>
-        </select>
-
-        <label className="checkbox-label">
-          <input 
-            type="checkbox" 
-            checked={rereadFilter} 
-            onChange={e => setRereadFilter(e.target.checked)} 
+    <div className="grid gap-6">
+      <motion.div
+        className="grid gap-4"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease }}
+      >
+        <h1 className="m-0 text-[clamp(2rem,4vw,3.3rem)] leading-[0.95] tracking-[-0.05em]">Reading Diary</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={filters.year || ""} onChange={(e) => setFilters({ ...filters, year: e.target.value })}
+            className="w-auto px-4 py-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.045)] text-[var(--color-text)] outline-none transition-all focus:border-[rgba(0,196,106,0.45)]">
+            <option value="">All Years</option>
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select value={filters.rating || ""} onChange={(e) => setFilters({ ...filters, rating: e.target.value })}
+            className="w-auto px-4 py-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.045)] text-[var(--color-text)] outline-none transition-all focus:border-[rgba(0,196,106,0.45)]">
+            <option value="">All Ratings</option>
+            {[5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5].map((r) => (
+              <option key={r} value={r}>{r} ★</option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2.5 text-sm font-semibold cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.is_reread === "true"}
+              onChange={(e) => setFilters({ ...filters, is_reread: e.target.checked ? "true" : "" })}
+              className="w-5 h-5 accent-[var(--color-accent)]"
+            />
+            Re-reads only
+          </label>
+          <input
+            type="text"
+            placeholder="Filter by tags (comma-separated)"
+            value={filters.tags || ""}
+            onChange={(e) => setFilters({ ...filters, tags: e.target.value })}
+            className="w-auto min-w-[180px] px-4 py-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.045)] text-[var(--color-text)] text-sm outline-none transition-all focus:border-[rgba(0,196,106,0.45)] placeholder:text-[var(--color-muted)]"
           />
-          Rereads only
-        </label>
+        </div>
+      </motion.div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => handleViewChange("calendar")}
+          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150 ${
+            viewMode === "calendar"
+              ? "bg-[var(--color-accent)] text-[#07110d]"
+              : "bg-[rgba(255,255,255,0.05)] text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          Calendar
+        </button>
+        <button
+          onClick={() => handleViewChange("list")}
+          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150 ${
+            viewMode === "list"
+              ? "bg-[var(--color-accent)] text-[#07110d]"
+              : "bg-[rgba(255,255,255,0.05)] text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          List
+        </button>
       </div>
 
-      {error && <div className="error-message">{error}</div>}
+      {loading && <Loading />}
 
-      {!loading && entries.length === 0 ? (
-        <div className="empty-state panel">
-          <h2>No diary entries found.</h2>
-          <p className="muted">Log a book to start building your reading history.</p>
-          <Link to="/search" className="action-link">Find a Book</Link>
+      {!loading && viewMode === "calendar" && (
+        entries.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-12 text-center">
+            <EmptyStateIllustration className="w-28 h-20 text-[var(--color-muted)]" />
+            <p className="text-[var(--color-muted)]">No diary entries found.</p>
+          </div>
+        ) : (
+          <CalendarDiary
+            entries={entries}
+            onEdit={startEdit}
+            onDelete={handleDelete}
+          />
+        )
+      )}
+
+      {!loading && viewMode === "list" && Object.keys(groupedEntries).length === 0 && (
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <EmptyStateIllustration className="w-28 h-20 text-[var(--color-muted)]" />
+          <p className="text-[var(--color-muted)]">No diary entries found.</p>
         </div>
-      ) : (
-        <div className="diary-timeline">
-          {groupedEntries.map((group, i) => (
-            <div key={`${group.year}-${group.month}-${i}`} className="diary-month-group">
-              <h2 className="month-heading">{group.month} <span>{group.year}</span></h2>
-              <div className="diary-entries-list">
-                {group.entries.map(entry => (
-                  <div key={entry.id} className="diary-entry-card panel">
-                    <Link to={`/books/${entry.book.slug}`}>
-                      <img 
-                        src={entry.book.thumbnail_url || entry.book.cover_url} 
-                        alt={entry.book.title} 
-                        className="diary-book-cover"
-                      />
-                    </Link>
-                    <div className="diary-entry-content">
-                      <div className="diary-entry-header">
-                        <Link to={`/books/${entry.book.slug}`} className="book-title-link">
-                          <h3 className="book-title">{entry.book.title}</h3>
-                        </Link>
-                        <span className="book-author">by {entry.book.author}</span>
-                      </div>
-                      
-                      <div className="diary-entry-meta">
-                        <span className="read-date">
-                          Read on {new Date(entry.read_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </span>
-                        {entry.is_reread && <span className="meta-badge">Reread</span>}
-                        {entry.rating && (
-                          <span className="rating">
-                            <StarIcon size={14} className="star-filled" /> {entry.rating}
-                          </span>
-                        )}
-                      </div>
+      )}
 
-                      {entry.review_text && (
-                        <p className="review-preview">
-                          {entry.contains_spoilers ? (
-                            <span className="spoiler-warning">This log contains spoilers.</span>
-                          ) : (
-                            entry.review_text.length > 250 
-                              ? `${entry.review_text.substring(0, 250)}...` 
-                              : entry.review_text
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <div className="diary-entry-actions">
-                      <button 
-                        className="icon-action edit-btn" 
-                        onClick={() => setEditingEntry(entry)}
-                        title="Edit Entry"
-                      >
-                        <EditIcon size={16} />
-                      </button>
-                      <button 
-                        className="icon-action delete-btn" 
-                        onClick={() => handleDelete(entry.id)}
-                        title="Delete Entry"
-                      >
-                        <TrashIcon size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {nextPage && (
-            <button 
-              className="load-more-btn chip-solid" 
-              onClick={() => loadEntries(nextPage, true)}
-              disabled={loadingMore}
+      {!loading && viewMode === "list" && Object.entries(groupedEntries).map(([month, monthEntries]) => (
+        <SectionReveal key={month}>
+          <section className="grid gap-4">
+            <motion.h2
+              className="m-0 text-lg font-bold"
+              initial={{ opacity: 0, x: -10 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.3, ease }}
             >
-              {loadingMore ? "Loading..." : "Load More"}
-            </button>
-          )}
-        </div>
-      )}
-
-      {editingEntry && (
-        <EditDiaryModal 
-          entry={editingEntry}
-          onClose={() => setEditingEntry(null)}
-          onSuccess={handleEditSuccess}
-        />
-      )}
-      
-      <style>{`
-        .diary-page {
-          max-width: 900px;
-          margin: 0 auto;
-        }
-        .diary-header {
-          margin-bottom: 32px;
-        }
-        .diary-filters {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 40px;
-          padding: 16px 20px;
-        }
-        .diary-filters select {
-          width: auto;
-          min-width: 140px;
-        }
-        .checkbox-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-          color: var(--muted);
-          font-weight: 500;
-        }
-        .checkbox-label input {
-          width: 18px;
-          height: 18px;
-        }
-        .diary-timeline {
-          display: flex;
-          flex-direction: column;
-          gap: 48px;
-        }
-        .diary-month-group {
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-        }
-        .month-heading {
-          font-size: 1.6rem;
-          margin: 0;
-          color: var(--text);
-          border-bottom: 1px solid var(--line);
-          padding-bottom: 12px;
-          display: flex;
-          align-items: baseline;
-          gap: 12px;
-        }
-        .month-heading span {
-          font-size: 1.1rem;
-          color: var(--muted);
-          font-weight: 500;
-        }
-        .diary-entries-list {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-        .diary-entry-card {
-          display: flex;
-          gap: 24px;
-          transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-          position: relative;
-        }
-        .diary-entry-card:hover {
-          transform: translateY(-3px);
-          border-color: rgba(255, 255, 255, 0.14);
-          box-shadow: 0 28px 70px rgba(0, 0, 0, 0.32);
-        }
-        .diary-entry-card:hover .diary-entry-actions {
-          opacity: 1;
-        }
-        .diary-book-cover {
-          width: 90px;
-          height: 135px;
-          object-fit: cover;
-          border-radius: 8px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
-          box-shadow: 0 10px 24px rgba(0,0,0,0.3);
-          flex-shrink: 0;
-        }
-        .diary-entry-content {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .diary-entry-header {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .book-title-link {
-          text-decoration: none;
-          color: inherit;
-        }
-        .book-title-link:hover {
-          text-decoration: underline;
-        }
-        .book-title {
-          font-size: 1.4rem;
-          font-weight: 700;
-          margin: 0;
-          line-height: 1.2;
-        }
-        .book-author {
-          color: var(--muted);
-          font-size: 1rem;
-        }
-        .diary-entry-meta {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          font-size: 0.9rem;
-          color: var(--muted);
-          flex-wrap: wrap;
-        }
-        .rating {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          color: var(--gold);
-          font-weight: 700;
-        }
-        .star-filled {
-          fill: var(--gold);
-        }
-        .review-preview {
-          margin: 0;
-          font-size: 1rem;
-          line-height: 1.6;
-          color: var(--muted-strong);
-        }
-        .spoiler-warning {
-          font-style: italic;
-          color: var(--danger);
-          padding: 4px 10px;
-          background: rgba(255, 145, 143, 0.1);
-          border-radius: 4px;
-          font-size: 0.85rem;
-        }
-        .diary-entry-actions {
-          display: flex;
-          gap: 8px;
-          position: absolute;
-          top: 16px;
-          right: 16px;
-          opacity: 0;
-          transition: opacity 180ms ease;
-        }
-        @media (max-width: 768px) {
-          .diary-entry-actions {
-            opacity: 1;
-            position: relative;
-            top: 0;
-            right: 0;
-            margin-top: 12px;
-            justify-content: flex-end;
-          }
-        }
-        .edit-btn, .delete-btn {
-          cursor: pointer;
-        }
-        .delete-btn:hover {
-          background: rgba(255, 77, 109, 0.14);
-          border-color: rgba(255, 77, 109, 0.28);
-          color: #ff7d96;
-        }
-        .load-more-btn {
-          width: 100%;
-          margin-top: 16px;
-          justify-content: center;
-          font-size: 1.1rem;
-          padding: 16px;
-        }
-        .empty-state {
-          text-align: center;
-          padding: 64px 24px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 16px;
-        }
-        .empty-state h2 {
-          font-size: 1.5rem;
-          margin: 0;
-        }
-        .error-message {
-          color: var(--danger);
-          padding: 16px;
-          background: rgba(255, 145, 143, 0.1);
-          border: 1px solid rgba(255, 145, 143, 0.2);
-          border-radius: 8px;
-          margin-bottom: 24px;
-        }
-      `}</style>
+              {new Date(month + "-01").toLocaleDateString("en-US", { year: "numeric", month: "long" })}
+            </motion.h2>
+            <StaggerContainer className="grid gap-3">
+              {monthEntries.map((entry) => (
+                <StaggerItem key={entry.id}>
+                  <div className="flex flex-col gap-3 p-4 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.02)]">
+                    {editingId === entry.id ? (
+                      <AnimatePresence>
+                        <motion.div
+                          className="grid gap-3"
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.3, ease }}
+                        >
+                          <StarPicker value={editRating} onChange={(v) => setEditRating(parseFloat(v))} />
+                          <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                            className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.045)] px-4 py-2.5 text-[var(--color-text)]" />
+                          <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={3} placeholder="Notes (optional)" />
+                          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editReread} onChange={(e) => setEditReread(e.target.checked)} className="accent-[var(--color-accent)]" /> Re-read</label>
+                          <input type="text" value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="Tags (comma-separated)" className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[rgba(255,255,255,0.045)] px-4 py-2.5 text-[var(--color-text)] text-sm" />
+                          <div className="flex items-center gap-3 justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                            <Button size="sm" onClick={handleUpdate} disabled={submitting}>
+                              {submitting ? "Saving..." : "Save"}
+                            </Button>
+                          </div>
+                        </motion.div>
+                      </AnimatePresence>
+                    ) : (
+                      <>
+                        <Link to={`/books/${entry.book.slug}`} className="flex items-start gap-3 md:gap-4">
+                          <BookCover book={entry.book} size="small" />
+                          <div className="grid gap-1.5 min-w-0">
+                            <strong className="text-sm md:text-base">{entry.book.title}</strong>
+                            <span className="text-xs text-[var(--color-muted)]">{new Date(entry.read_date).toLocaleDateString()}</span>
+                             <div className="flex items-center flex-wrap gap-2 text-sm text-[var(--color-muted-strong)]">
+                              {entry.rating && <Badge variant="gold">{entry.rating} ★</Badge>}
+                              {entry.is_reread && <Badge>Re-read</Badge>}
+                              {entry.tags?.map((tag: string) => (
+                                <Badge key={tag} variant="outline">{tag}</Badge>
+                              ))}
+                            </div>
+                            {entry.review_text && <p className="text-sm text-[var(--color-muted-strong)] m-0 line-clamp-3">{entry.review_text}</p>}
+                          </div>
+                        </Link>
+                        <div className="flex items-center gap-2 justify-end">
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(entry)}>Edit</Button>
+                          <Button variant="danger" size="sm" onClick={() => handleDelete(entry.id)}>Delete</Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </StaggerItem>
+              ))}
+            </StaggerContainer>
+          </section>
+        </SectionReveal>
+      ))}
     </div>
   );
 }

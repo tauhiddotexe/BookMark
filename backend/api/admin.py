@@ -1,44 +1,29 @@
 from django.contrib import admin
 
-from .models import Book, BookList, BookListItem, Comment, Follow, Notification, Profile, Review, ReviewLike, ShelfEntry
-
-
-@admin.register(Profile)
-class ProfileAdmin(admin.ModelAdmin):
-    list_display = ("user", "display_name")
+from .models import Book, DiaryEntry, Profile, Readlist, Review
 
 
 @admin.register(Book)
 class BookAdmin(admin.ModelAdmin):
-    list_display = ("title", "author", "average_rating", "ratings_count")
-    search_fields = ("title", "author", "google_books_id")
+    list_display = ["title", "author", "google_books_id"]
+    search_fields = ["title", "author"]
 
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin):
-    list_display = ("user", "book", "rating", "created_at")
-    search_fields = ("user__username", "book__title")
+    list_display = ["user", "book", "rating", "created_at"]
+    list_filter = ["rating"]
 
 
-@admin.register(Comment)
-class CommentAdmin(admin.ModelAdmin):
-    list_display = ("user", "review", "created_at")
-    search_fields = ("user__username", "review__book__title")
+@admin.register(DiaryEntry)
+class DiaryEntryAdmin(admin.ModelAdmin):
+    list_display = ["user", "book", "read_date", "is_reread"]
+    list_filter = ["is_reread"]
 
 
-@admin.register(Follow)
-class FollowAdmin(admin.ModelAdmin):
-    list_display = ("follower", "following", "created_at")
-    search_fields = ("follower__username", "following__username")
+@admin.register(Readlist)
+class ReadlistAdmin(admin.ModelAdmin):
+    list_display = ["user", "book", "created_at"]
 
 
-@admin.register(Notification)
-class NotificationAdmin(admin.ModelAdmin):
-    list_display = ("recipient", "actor", "notification_type", "is_read", "created_at")
-    search_fields = ("recipient__username", "actor__username")
-
-
-admin.site.register(ReviewLike)
-admin.site.register(ShelfEntry)
-admin.site.register(BookList)
-admin.site.register(BookListItem)
+admin.site.register(Profile)

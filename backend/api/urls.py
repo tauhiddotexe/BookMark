@@ -4,38 +4,28 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     BookListViewSet,
     BookViewSet,
-    CommentViewSet,
-    FeedView,
-    FollowUserView,
-    MeView,
-    NotificationListView,
-    ProfileView,
-    ReviewViewSet,
-    ShelfEntryViewSet,
     DiaryEntryViewSet,
-    UnfollowUserView,
-    stats_view,
+    FavoriteBookViewSet,
+    MeView,
+    MyProfileView,
+    ReadlistViewSet,
+    ReviewViewSet,
     health_check,
-    ActivityViewSet,
+    my_stats_view,
 )
 
 router = DefaultRouter()
 router.register("books", BookViewSet, basename="book")
 router.register("reviews", ReviewViewSet, basename="review")
-router.register("comments", CommentViewSet, basename="comment")
-router.register("shelves", ShelfEntryViewSet, basename="shelf")
-router.register("lists", BookListViewSet, basename="list")
 router.register("diary", DiaryEntryViewSet, basename="diary")
-router.register("activities", ActivityViewSet, basename="activity")
+router.register("readlist", ReadlistViewSet, basename="readlist")
+router.register("lists", BookListViewSet, basename="list")
+router.register("favorites", FavoriteBookViewSet, basename="favorite")
 
 urlpatterns = [
     path("auth/me/", MeView.as_view(), name="me"),
-    path("feed/", FeedView.as_view(), name="feed"),
-    path("profiles/<str:username>/", ProfileView.as_view(), name="profile"),
-    path("profiles/<str:username>/follow/", FollowUserView.as_view(), name="follow-user"),
-    path("profiles/<str:username>/unfollow/", UnfollowUserView.as_view(), name="unfollow-user"),
-    path("notifications/", NotificationListView.as_view(), name="notifications"),
-    path("stats/", stats_view, name="stats"),
+    path("me/", MyProfileView.as_view(), name="my-profile"),
+    path("stats/", my_stats_view, name="my-stats"),
     path("health-check/", health_check, name="health-check"),
     path("", include(router.urls)),
 ]

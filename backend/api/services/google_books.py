@@ -170,8 +170,4 @@ def fetch_google_book_data(volume_id):
         
     return _normalize_volume(cached_volume)
 
-def sync_google_book(volume_id):
-    book = Book.objects.filter(google_books_id=volume_id).first()
-    if book:
-        return book
-    return Book.objects.create(**fetch_google_book_data(volume_id))
+

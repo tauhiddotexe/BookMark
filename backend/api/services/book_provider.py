@@ -44,9 +44,12 @@ def _enrich_with_open_library(book: dict) -> dict:
         logger.exception(f"Failed to enrich book with Open Library: {book.get('title')}")
         return book
 
-def search_books(query: str) -> list[dict]:
+def search_books(query: str, category: str | None = None, isbn: str | None = None) -> list[dict]:
     """Search Google Books, fallback to Open Library, enrich results, cached centrally."""
-    normalized_query = query.strip().lower()
+    if isbn:
+        normalized_query = isbn.strip()
+    else:
+        normalized_query = query.strip().lower()
     if not normalized_query:
         return []
 
@@ -59,7 +62,14 @@ def search_books(query: str) -> list[dict]:
         return cached
 
     logger.debug("Central book provider search cache miss query=%s", normalized_query)
-    results = google_books.search_google_books(query)
+    if isbn:
+        results = google_books.search_google_books(isbn)
+    else:
+        results = google_books.search_google_books(query)
+    
+    if category and results:
+        cat_lower = category.lower()
+        results = [r for r in results if cat_lower in r.get("categories", "").lower()]
     
     if not results:
         logger.info("Google Books search empty. Falling back to Open Library.")

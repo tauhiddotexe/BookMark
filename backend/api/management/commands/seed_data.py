@@ -1,7 +1,9 @@
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
-from api.models import Book, BookList, BookListItem, Comment, Follow, Notification, Review, ReviewLike, ShelfEntry
+User = get_user_model()
+
+from api.models import Book, Review, Readlist, FavoriteBook, DiaryEntry
 from api.services.google_books import search_google_books
 
 
@@ -32,87 +34,29 @@ def sync_seed_book(title, query):
 
 
 class Command(BaseCommand):
-    help = "Seed demo users, books, shelves, follows, comments, reviews, notifications, and lists."
+    help = "Seed demo books, reviews, diary entries, readlist, and favorites."
 
     def handle(self, *args, **options):
-        users = []
-        for username in ["ria", "dev", "maya"]:
-            user, _ = User.objects.get_or_create(username=username, defaults={"email": f"{username}@bookmark.local"})
-            user.set_password("password123")
-            user.save()
-            user.profile.display_name = username.capitalize()
-            user.profile.avatar_url = f"https://api.dicebear.com/9.x/thumbs/svg?seed={username}"
-            user.profile.bio = f"{username.capitalize()} shares notes, highlights, and strong opinions about books."
-            user.profile.save()
-            users.append(user)
+        user, _ = User.objects.get_or_create(username="demo", defaults={"email": "demo@bookmark.local"})
+        user.set_password("password123")
+        user.save()
+        user.profile.display_name = "Demo"
+        user.profile.bio = "Reading my way through the shelves."
+        user.profile.save()
 
         books = [sync_seed_book(title, query) for title, query in BOOK_QUERIES]
 
-        reviews = [
-            (users[0], books[0], 4.5, "Everything sparkles and aches. The prose still lands like gossip overheard in the next room."),
-            (users[1], books[1], 5.0, "An absurdly readable big-idea novel. I loved how competent everyone felt."),
-            (users[2], books[2], 4.0, "Quietly intense and mythic without losing its human pulse."),
+        reviews_data = [
+            (books[0], 4.5, "Everything sparkles and aches. The prose still lands like gossip overheard in the next room."),
+            (books[1], 5.0, "An absurdly readable big-idea novel. I loved how competent everyone felt."),
+            (books[2], 4.0, "Quietly intense and mythic without losing its human pulse."),
         ]
-        created_reviews = []
-        for user, book, rating, text in reviews:
-            review, _ = Review.objects.get_or_create(user=user, book=book, defaults={"rating": rating, "review_text": text})
-            created_reviews.append(review)
-            like, like_created = ReviewLike.objects.get_or_create(user=users[0], review=review)
-            if like_created and review.user != users[0]:
-                Notification.objects.get_or_create(
-                    recipient=review.user,
-                    actor=users[0],
-                    notification_type=Notification.Type.LIKE,
-                    review=review,
-                )
+        for book, rating, text in reviews_data:
+            Review.objects.get_or_create(user=user, book=book, defaults={"rating": rating, "review_text": text})
             book.refresh_metrics()
 
-        shelf_entries = [
-            (users[0], books[0], ShelfEntry.Shelf.READ),
-            (users[0], books[1], ShelfEntry.Shelf.WANT),
-            (users[1], books[1], ShelfEntry.Shelf.READ),
-            (users[1], books[2], ShelfEntry.Shelf.READING),
-            (users[2], books[2], ShelfEntry.Shelf.READ),
-        ]
-        for user, book, shelf in shelf_entries:
-            ShelfEntry.objects.get_or_create(user=user, book=book, shelf=shelf)
+        Readlist.objects.get_or_create(user=user, book=books[1])
 
-        follows = [
-            (users[0], users[1]),
-            (users[0], users[2]),
-            (users[1], users[2]),
-        ]
-        for follower, following in follows:
-            follow, created = Follow.objects.get_or_create(follower=follower, following=following)
-            if created:
-                Notification.objects.get_or_create(
-                    recipient=following,
-                    actor=follower,
-                    notification_type=Notification.Type.FOLLOW,
-                    follow=follow,
-                )
+        FavoriteBook.objects.get_or_create(user=user, book=books[2])
 
-        comments = [
-            (users[1], created_reviews[0], "That line about overheard gossip sold me immediately."),
-            (users[2], created_reviews[1], "This made me want to bump it up my queue."),
-        ]
-        for user, review, body in comments:
-            comment, _ = Comment.objects.get_or_create(user=user, review=review, body=body)
-            if review.user != user:
-                Notification.objects.get_or_create(
-                    recipient=review.user,
-                    actor=user,
-                    notification_type=Notification.Type.COMMENT,
-                    review=review,
-                    comment=comment,
-                )
-
-        book_list, _ = BookList.objects.get_or_create(
-            user=users[0],
-            name="Books with impossible problems",
-            defaults={"description": "Resourceful people in situations getting steadily worse."},
-        )
-        for position, book in enumerate(books[:2]):
-            BookListItem.objects.get_or_create(book_list=book_list, book=book, defaults={"position": position})
-
-        self.stdout.write(self.style.SUCCESS("Seeded data. Demo users: ria/dev/maya with password123"))
+        self.stdout.write(self.style.SUCCESS("Seeded data. Demo user: demo / password123"))
