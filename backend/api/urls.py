@@ -11,6 +11,7 @@ from .views import (
     ReadlistViewSet,
     ReviewViewSet,
     health_check,
+    home_featured_view,
     my_stats_view,
 )
 
@@ -26,6 +27,7 @@ urlpatterns = [
     path("auth/me/", MeView.as_view(), name="me"),
     path("me/", MyProfileView.as_view(), name="my-profile"),
     path("stats/", my_stats_view, name="my-stats"),
+    path("home/featured/", home_featured_view, name="home-featured"),
     path("health-check/", health_check, name="health-check"),
     path("", include(router.urls)),
 ]

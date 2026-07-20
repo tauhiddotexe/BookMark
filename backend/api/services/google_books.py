@@ -73,12 +73,12 @@ def _pick_thumbnail_url(image_links, volume_id):
     return _google_cover_from_volume(volume_id, 1)
 
 
-def search_google_books(query):
+def search_google_books(query, **extra_params):
     normalized_query = query.strip().lower()
     if not normalized_query:
         return []
 
-    cache_key = _cache_key("search", normalized_query)
+    cache_key = _cache_key("search", normalized_query + str(sorted(extra_params.items())))
     cached_results = cache.get(cache_key)
     if cached_results is not None:
         logger.debug("Google Books search cache hit query=%s", normalized_query)
@@ -86,6 +86,7 @@ def search_google_books(query):
 
     logger.debug("Google Books search cache miss query=%s", normalized_query)
     params = {"q": query, "maxResults": 12}
+    params.update(extra_params)
     if settings.GOOGLE_BOOKS_API_KEY:
         params["key"] = settings.GOOGLE_BOOKS_API_KEY
     

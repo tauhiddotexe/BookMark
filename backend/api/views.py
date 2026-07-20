@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from .models import Book, BookList, BookListItem, DiaryEntry, FavoriteBook, Readlist, Review
 from .pagination import StandardResultsSetPagination
 from .serializers import (
+    BookListSerializer,
     BookSearchResultSerializer,
     BookSerializer,
     DiaryEntrySerializer,
@@ -23,8 +24,11 @@ from .serializers import (
     ReviewSerializer,
     UserSerializer,
 )
+from django.core.cache import cache
+
 from .services import book_provider
 from .services import cache as cache_service
+from .services import google_books
 
 logger = logging.getLogger(__name__)
 
@@ -322,3 +326,57 @@ def health_check(_request):
         "status": "healthy",
         "cache": "redis" if redis_ok else "fallback",
     })
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def home_featured_view(request):
+    cache_key = "home:featured"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+
+    results = []
+
+    # 1. Hardcover trending — closest to "monthly most read"
+    try:
+        results = book_provider.discover_books()
+    except Exception:
+        logger.exception("Failed to fetch discover books for hero")
+
+    # 2. Google Books subject search (newest/popular per category)
+    if not results:
+        try:
+            seen = set()
+            for subject in ["fiction", "fantasy", "mystery", "science+fiction", "romance", "nonfiction"]:
+                books = google_books.search_google_books(f"subject:{subject}")
+                for book in books:
+                    gid = book["google_books_id"]
+                    if gid not in seen:
+                        seen.add(gid)
+                        results.append(book)
+                    if len(results) >= 10:
+                        break
+                if len(results) >= 10:
+                    break
+        except Exception:
+            logger.exception("Failed to fetch new books from Google Books")
+
+    # 3. Local DB fallback
+    if not results:
+        results = google_books.local_book_results(limit=10)
+
+    google_ids = [r["google_books_id"] for r in results]
+    existing = {
+        b.google_books_id: b
+        for b in Book.objects.filter(google_books_id__in=google_ids).only("google_books_id", "slug")
+    }
+    enriched = [
+        {**r, "existing_slug": existing.get(r["google_books_id"]).slug if existing.get(r["google_books_id"]) else ""}
+        for r in results
+    ]
+    cache.set(cache_key, enriched, 3600)
+    return Response(enriched)
+
+
+

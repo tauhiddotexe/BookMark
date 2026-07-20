@@ -239,6 +239,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 // API functions — BookMark Personal Journal
 // ---------------------------------------------------------------------------
 
+// Home
+export const getHomeFeatured = (options: RequestOptions = {}) =>
+  request<SearchBookResult[]>("/home/featured/", options);
+
 // Auth
 export const syncUser = (authToken?: string, options: RequestOptions = {}) =>
   request<User>("/auth/me/", { authToken, ...options });
