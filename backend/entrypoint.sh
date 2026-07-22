@@ -30,19 +30,10 @@ print('MongoDB is ready')
     sleep 2
 done
 
-echo "[2/4] Checking migrations..."
-python manage.py makemigrations --noinput 2>&1 || echo "  makemigrations had warnings (non-fatal)"
-
-echo "[3/4] Running MongoDB-safe migrations..."
-python manage.py mongodb_migrate 2>&1 || echo "  migrations had issues (non-fatal)"
-
-echo "[4/4] Skipping collectstatic (API-only mode)"
-
 PORT="${PORT:-8000}"
-echo "========================================="
-echo "  Starting Gunicorn server on port $PORT"
-echo "========================================="
-exec gunicorn config.wsgi:application \
+
+echo "[2/4] Starting Gunicorn on port $PORT..."
+gunicorn config.wsgi:application \
     --bind 0.0.0.0:$PORT \
     --workers 3 \
     --timeout 120 \
@@ -50,4 +41,15 @@ exec gunicorn config.wsgi:application \
     --max-requests-jitter 100 \
     --keep-alive 5 \
     --access-logfile - \
-    --error-logfile -
+    --error-logfile - &
+GUNICORN_PID=$!
+
+sleep 2
+
+echo "[3/4] Running migrations..."
+python manage.py makemigrations --noinput 2>&1 || echo "  makemigrations had warnings (non-fatal)"
+python manage.py mongodb_migrate 2>&1 || echo "  mongodb_migrate had issues (non-fatal)"
+
+echo "[4/4] Migrations done. Server running in foreground."
+
+wait $GUNICORN_PID
