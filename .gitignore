@@ -51,6 +51,7 @@ test-screenshots/
 homepage.png
 skills-lock.json
 frontend/components.json
+backend/*.log
 
 # Agent skill locks
 .skill-lock.json
