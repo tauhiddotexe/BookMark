@@ -54,3 +54,10 @@ frontend/components.json
 
 # Agent skill locks
 .skill-lock.json
+
+# Firebase config
+.firebaserc
+
+# Project docs & tasks
+docs/
+tasks/

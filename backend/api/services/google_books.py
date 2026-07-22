@@ -76,6 +76,63 @@ def _pick_thumbnail_url(image_links, volume_id):
     return _google_cover_from_volume(volume_id, 2)
 
 
+def _is_readable_book(item):
+    has_isbn = bool(item.get("isbn_13") or item.get("isbn_10"))
+    has_author = bool(item.get("author"))
+    has_pages = (item.get("page_count", 0) or 0) >= 50
+    has_description = bool(item.get("description"))
+    return has_isbn or (has_author and has_pages and has_description)
+
+
+_STRICT_EXCLUDE_CATEGORIES = [
+    c.strip().lower()
+    for c in [
+        "Language Arts & Disciplines",
+        "Literary Criticism",
+        "Law",
+        "Social Science",
+        "Education",
+        "Reference",
+        "Bibliography",
+        "Science",
+        "Mathematics",
+        "Technology & Engineering",
+        "Medical",
+        "Philosophy",
+    ]
+]
+
+_STRICT_EXCLUDE_TITLE_PATTERNS = [
+    "yearbook", "dictionary of", "bibliography", "catalogue",
+    "reference guide", "encyclopedia", "chronology",
+    "proceedings of", "transactions of",
+]
+
+
+def _filter_real_books(results, strict=False):
+    if strict:
+        filtered = []
+        for r in results:
+            if not (r.get("isbn_13") or r.get("isbn_10")):
+                continue
+            if not r.get("author"):
+                continue
+            title = r.get("title", "Untitled")
+            if not title or title == "Untitled":
+                continue
+            if (r.get("page_count", 0) or 0) < 80:
+                continue
+            cats = r.get("categories", "").lower()
+            if any(excl in cats for excl in _STRICT_EXCLUDE_CATEGORIES):
+                continue
+            title_lower = title.lower()
+            if any(p in title_lower for p in _STRICT_EXCLUDE_TITLE_PATTERNS):
+                continue
+            filtered.append(r)
+        return filtered
+    return [r for r in results if _is_readable_book(r)]
+
+
 def search_google_books(query, **extra_params):
     normalized_query = query.strip().lower()
     if not normalized_query:
@@ -99,11 +156,12 @@ def search_google_books(query, **extra_params):
         return []
         
     results = [_normalize_volume(item) for item in payload.get("items", [])]
+    results = _filter_real_books(results)
     cache.set(cache_key, results, SEARCH_CACHE_TTL)
     return results
 
 
-def discover_google_books():
+def discover_google_books(strict=True):
     cached_results = cache.get(_cache_key("discover", "default"))
     if cached_results is not None:
         return cached_results
@@ -123,8 +181,10 @@ def discover_google_books():
             seen_ids.add(item["google_books_id"])
             results.append(item)
             if len(results) >= 18:
+                results = _filter_real_books(results, strict=strict)
                 cache.set(_cache_key("discover", "default"), results, DISCOVER_CACHE_TTL)
                 return results
+    results = _filter_real_books(results, strict=strict)
     cache.set(_cache_key("discover", "default"), results, DISCOVER_CACHE_TTL)
     return results
 
@@ -154,19 +214,19 @@ def local_book_results(query="", limit=12):
 
 
 def new_releases(limit=18):
-    cache_key = _cache_key("new_releases", "v1")
+    cache_key = _cache_key("new_releases", "v6")
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
     queries = [
-        "subject:fiction", "subject:fantasy", "subject:mystery",
-        "subject:science+fiction", "subject:romance", "subject:nonfiction",
+        "2026 fiction", "2026 fantasy", "2026 mystery",
+        "2026 science fiction", "2026 romance", "2026 nonfiction",
     ]
     seen_ids = set()
     results = []
     for q in queries:
-        books = search_google_books(q, orderBy="newest")[:6]
+        books = search_google_books(q)[:6]
         for item in books:
             gid = item["google_books_id"]
             if gid in seen_ids:
@@ -174,8 +234,10 @@ def new_releases(limit=18):
             seen_ids.add(gid)
             results.append(item)
             if len(results) >= limit:
+                results = _filter_real_books(results, strict=True)
                 cache.set(cache_key, results, DISCOVER_CACHE_TTL)
                 return results
+    results = _filter_real_books(results, strict=True)
     cache.set(cache_key, results, DISCOVER_CACHE_TTL)
     return results
 
