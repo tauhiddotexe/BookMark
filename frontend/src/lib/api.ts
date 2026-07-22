@@ -265,6 +265,9 @@ export const searchBooks = (query: string, category?: string, isbn?: string, opt
 export const discoverBooks = (options: RequestOptions = {}) =>
   request<{ results: SearchBookResult[] }>("/books/discover/", options);
 
+export const getNewReleases = (options: RequestOptions = {}) =>
+  request<{ results: SearchBookResult[] }>("/books/new_releases/", options);
+
 export const getBook = (slug: string, options: RequestOptions = {}) =>
   request<Book>(`/books/${slug}/`, options);
 

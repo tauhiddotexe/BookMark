@@ -2,8 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  getHomeFeatured, getDiaryEntries, getCurrentlyReading, getMyStats,
-  discoverBooks, searchBooks,
+  getDiaryEntries, getCurrentlyReading, getMyStats,
+  discoverBooks, getNewReleases,
 } from "@/lib/api";
 import { DiaryEntry, DiaryResponse, ReadlistEntry, UserStats, SearchBookResult } from "@/lib/types";
 import { BookCover } from "@/components/book-cover";
@@ -294,37 +294,29 @@ function HeroSection({ books }: { books: SearchBookResult[] }) {
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [featured, setFeatured] = useState<SearchBookResult[]>([]);
-  const [trending, setTrending] = useState<SearchBookResult[]>([]);
-  const [recommendations, setRecommendations] = useState<SearchBookResult[]>([]);
+  const [hero, setHero] = useState<SearchBookResult[]>([]);
+  const [suggestions, setSuggestions] = useState<SearchBookResult[]>([]);
   const [recentDiary, setRecentDiary] = useState<DiaryEntry[]>([]);
   const [currentlyReading, setCurrentlyReading] = useState<ReadlistEntry[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const cats = ["fiction", "fantasy", "bestsellers", "mystery", "science+fiction", "romance", "history", "biography", "thriller", "horror"];
-    const picks = cats.sort(() => Math.random() - 0.5).slice(0, 2);
     Promise.all([
-      getHomeFeatured(),
+      getNewReleases(),
       discoverBooks(),
-      ...picks.map((c) => searchBooks("", c)),
       getDiaryEntries({ page: 1, page_size: 20 }),
       getCurrentlyReading(),
       getMyStats(),
     ])
       .then((all) => {
-        const f = all[0] as SearchBookResult[];
+        const nr = all[0] as { results: SearchBookResult[] };
         const disc = all[1] as { results: SearchBookResult[] };
-        const recResults = all.slice(2, 2 + picks.length) as { results: SearchBookResult[] }[];
-        const d = all[2 + picks.length] as DiaryResponse;
-        const cr = all[3 + picks.length] as { results: ReadlistEntry[] };
-        const s = all[4 + picks.length] as UserStats;
-        setFeatured(f);
-        setTrending(disc.results || []);
-        const merged = recResults.flatMap((r) => r.results || []);
-        const seen = new Set<string>();
-        setRecommendations(merged.filter((b) => { if (seen.has(b.google_books_id)) return false; seen.add(b.google_books_id); return true; }));
+        const d = all[2] as DiaryResponse;
+        const cr = all[3] as { results: ReadlistEntry[] };
+        const s = all[4] as UserStats;
+        setHero(nr.results || []);
+        setSuggestions(disc.results || []);
         setRecentDiary(d.results || []);
         setCurrentlyReading(cr.results || []);
         setStats(s);
@@ -344,23 +336,14 @@ export function HomePage() {
 
   return (
     <div className="grid gap-10">
-      <HeroSection books={featured} />
+      <HeroSection books={hero} />
 
-      {trending.length > 0 && (
+      {suggestions.length > 0 && (
         <SectionReveal>
           <PosterRow
-            title="Trending Books"
-            books={trending.map((b) => ({ ...b, slug: b.existing_slug || undefined }))}
+            title="Suggestions"
+            books={suggestions.map((b) => ({ ...b, slug: b.existing_slug || undefined }))}
             badge={monthName}
-          />
-        </SectionReveal>
-      )}
-
-      {recommendations.length > 0 && (
-        <SectionReveal>
-          <PosterRow
-            title="Recommendations"
-            books={recommendations.map((b) => ({ ...b, slug: b.existing_slug || undefined }))}
           />
         </SectionReveal>
       )}

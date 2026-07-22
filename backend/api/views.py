@@ -101,6 +101,17 @@ class BookViewSet(viewsets.ReadOnlyModelViewSet):
             results = book_provider.local_book_results(limit=18)
         return Response({"results": BookSearchResultSerializer(self._attach_existing_books(results), many=True).data})
 
+    @action(detail=False, methods=["get"])
+    def new_releases(self, request):
+        try:
+            results = google_books.new_releases(limit=18)
+        except Exception:
+            logger.exception("Provider new_releases failed, falling back to local DB")
+            results = []
+        if not results:
+            results = google_books.local_book_results(limit=18)
+        return Response({"results": BookSearchResultSerializer(self._attach_existing_books(results), many=True).data})
+
     @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated])
     def import_google(self, request):
         volume_id = request.data.get("volume_id") or request.data.get("google_books_id")

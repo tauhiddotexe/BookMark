@@ -46,6 +46,11 @@ export function BookCover({
       alt={alt || book.title}
       loading={loading}
       decoding="async"
+      onLoad={(e) => {
+        if (e.currentTarget.naturalWidth < 10 && index < sources.length - 1) {
+          setIndex((current) => current + 1);
+        }
+      }}
       onError={() => {
         if (index < sources.length - 1) setIndex((current) => current + 1);
         else if (src !== placeholder) setIndex(sources.length);

@@ -29,18 +29,17 @@ function normalizeGoogleImageUrl(url: string) {
 }
 
 export function getBookCoverCandidates(source: CoverSource) {
-  const candidates = [
-    normalizeGoogleImageUrl(source.cover_url || ""),
-    normalizeGoogleImageUrl(source.thumbnail_url || ""),
-  ];
+  const candidates: string[] = [];
 
   if (source.isbn_13) candidates.push(`https://covers.openlibrary.org/b/isbn/${source.isbn_13}-L.jpg`);
   if (source.isbn_10) candidates.push(`https://covers.openlibrary.org/b/isbn/${source.isbn_10}-L.jpg`);
   if (source.openlibrary_id) candidates.push(`https://covers.openlibrary.org/b/olid/${source.openlibrary_id.replace("/works/", "")}-L.jpg`);
-  
+
+  candidates.push(normalizeGoogleImageUrl(source.cover_url || ""));
+  candidates.push(normalizeGoogleImageUrl(source.thumbnail_url || ""));
+
   if (source.google_books_id) {
-    candidates.push(buildGoogleBooksCover(source.google_books_id, 1));
-    candidates.push(buildGoogleBooksCover(source.google_books_id, 2));
+    candidates.push(buildGoogleBooksCover(source.google_books_id, 3));
   }
 
   return [...new Set(candidates.filter(Boolean))];

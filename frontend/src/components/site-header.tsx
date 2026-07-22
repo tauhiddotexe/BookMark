@@ -67,7 +67,7 @@ export function SiteHeader() {
           <Button variant="ghost" size="sm" onClick={logout}>Logout</Button>
         </nav>
 
-        <button className="md:hidden grid place-items-center w-10 h-10 rounded-full bg-transparent text-[var(--color-muted)] cursor-pointer" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+        <button className="md:hidden ml-auto grid place-items-center w-10 h-10 rounded-full bg-transparent text-[var(--color-muted)] cursor-pointer" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
           <Icons.menu />
         </button>
       </div>
