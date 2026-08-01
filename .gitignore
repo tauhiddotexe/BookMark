@@ -36,6 +36,10 @@ frontend/.env.local
 scratch/
 db-data/
 
+# Deployment scratch files (may contain secrets from Render/Firebase API dumps)
+tmp/
+tmp*.json
+
 # Frontend build artifacts
 dist/
 frontend/dist/
