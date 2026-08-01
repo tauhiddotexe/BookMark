@@ -23,7 +23,22 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "email", "profile", "date_joined"]
-        read_only_fields = ["id", "username", "email", "date_joined"]
+        read_only_fields = ["id", "email", "date_joined"]
+
+    def validate_username(self, value):
+        username = "".join(
+            c if c.isalnum() or c in "_.-" else "_" for c in (value or "").lower()
+        ).strip("_.-")[:30]
+        if len(username) < 2:
+            raise serializers.ValidationError(
+                "Username must contain at least 2 letters or numbers."
+            )
+        exists = User.objects.filter(username=username).exclude(
+            pk=self.instance.pk if self.instance else None
+        ).exists()
+        if exists:
+            raise serializers.ValidationError("This username is already taken.")
+        return username
 
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', None)

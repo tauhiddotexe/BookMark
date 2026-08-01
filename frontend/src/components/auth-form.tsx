@@ -7,6 +7,7 @@ import {
   updateProfile,
 } from "firebase/auth";
 import { auth, googleProvider, appleProvider } from "@/lib/firebase";
+import { updateMyProfile } from "@/lib/api";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,12 @@ export function AuthForm({ mode }: AuthFormProps) {
       if (mode === "signup") {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(userCredential.user, { displayName: username });
+        try {
+          const token = await userCredential.user.getIdToken(true);
+          await updateMyProfile(token, { username, profile: { display_name: username } });
+        } catch (e) {
+          console.warn("[Signup] Failed to push username to backend", e);
+        }
         user = userCredential.user;
       } else {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);

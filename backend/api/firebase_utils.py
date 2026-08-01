@@ -98,10 +98,20 @@ def verify_firebase_token(id_token):
         return None
 
 
+def _sanitize_username(raw_name, uid):
+    base = "".join(
+        c if c.isalnum() or c in "_.-" else "_" for c in (raw_name or "").lower()
+    ).strip("_.-")
+    if not base or len(base) < 2:
+        base = (uid or "user")[:15]
+    return base[:30]
+
+
 def get_or_create_firebase_user(decoded_token):
     uid = decoded_token.get("uid")
     email = decoded_token.get("email")
     name = decoded_token.get("name", "")
+    fallback = (uid or "user")[:15]
 
     user = None
     if uid:
@@ -117,14 +127,7 @@ def get_or_create_firebase_user(decoded_token):
                 logger.warning(f"[User Sync] Failed to link firebase_uid: {e}")
 
     if not user:
-        raw_name = decoded_token.get("name", "")
-        base_username = "".join(
-            c if c.isalnum() or c in "_.-" else "_" for c in raw_name.lower()
-        ).strip("_.-")
-        if not base_username or len(base_username) < 2:
-            base_username = (uid or "user")[:15]
-        base_username = base_username[:30]
-        username = base_username
+        username = _sanitize_username(name, uid)
 
         for i in range(10):
             try:
@@ -141,11 +144,24 @@ def get_or_create_firebase_user(decoded_token):
                 if existing:
                     user = existing
                     break
-                username = f"{base_username}_{uuid.uuid4().hex[:6]}"
+                username = f"{username[:23]}_{uuid.uuid4().hex[:6]}"
 
         if not user:
             logger.error("[User Sync] FAILED to create user after all retries")
             return None
+    elif name:
+        # Self-heal accounts created before the ID token carried the name claim.
+        # The signup sync can race with updateProfile, so the first creation often
+        # falls back to a uid-derived username. Align it with the token name here.
+        sanitized = _sanitize_username(name, uid)
+        if sanitized and sanitized != user.username and not User.objects.filter(
+            username=sanitized
+        ).exclude(pk=user.pk).exists():
+            try:
+                user.username = sanitized
+                user.save(update_fields=["username"])
+            except Exception:
+                logger.warning("[User Sync] Failed to self-heal username")
 
     try:
         profile = Profile.objects.filter(user=user).first()
@@ -160,7 +176,7 @@ def get_or_create_firebase_user(decoded_token):
 
     if profile:
         modified = False
-        if name and not profile.display_name:
+        if name and (not profile.display_name or profile.display_name == fallback):
             profile.display_name = name
             modified = True
         picture = decoded_token.get("picture")

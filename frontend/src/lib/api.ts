@@ -1,5 +1,5 @@
 import {
-  Book, BookList, BookListDetail, BookListItem, SearchBookResult, User,
+  Book, BookList, BookListDetail, BookListItem, SearchBookResult, User, Profile,
   DiaryEntry, DiaryResponse, Review, ReadlistEntry, FavoriteBook,
   MeDetail, UserStats,
 } from "@/lib/types";
@@ -249,6 +249,11 @@ export const syncUser = (authToken?: string, options: RequestOptions = {}) =>
 
 export const getMyProfile = (options: RequestOptions = {}) =>
   request<MeDetail>("/me/", options);
+
+export const updateMyProfile = (token: string, payload: {
+  username?: string; profile?: Partial<Profile>;
+}) =>
+  request<User>("/auth/me/", { method: "PATCH", authToken: token, body: payload });
 
 export const getMyStats = (options: RequestOptions = {}) =>
   request<UserStats>("/stats/", options);
